@@ -94,6 +94,8 @@ static int screenCenterPlayerOffsetX, screenCenterPlayerOffsetY;
 static float lastMouseX = 0;
 static float lastMouseY = 0;
 
+static float lastScreenEdgeDX = 0;
+static float lastScreenEdgeDY = 0;
 
 // set to true to render for teaser video
 static char teaserVideo = false;
@@ -4550,7 +4552,6 @@ void LivingLifePage::draw( doublePair inViewCenter,
         }
 
     
-    
 
     // reset flags so that only drawn objects get flagged
     for( int i=0; i<gameObjects.size(); i++ ) {
@@ -5252,6 +5253,19 @@ void LivingLifePage::draw( doublePair inViewCenter,
         return;
         }
 
+    if( true ) {
+      char *string = autoSprintf( "%4.0f,%4.0f", lastScreenEdgeDX, lastScreenEdgeDY);
+
+      doublePair pos = lastScreenViewCenter;
+      pos.x += -600;
+      pos.y += 300;
+
+      setDrawColor( 1, 1, 1, 1 );
+      mainFont->drawString( string, 
+                            pos, alignCenter );
+      delete [] string;
+    }
+    
 
     // special mode for teaser video
     if( teaserVideo ) {
@@ -13959,7 +13973,27 @@ void LivingLifePage::pointerMove( float inX, float inY ) {
         mCurMouseOverBehind = false;
         mLastMouseOverFade = 1.0f;
         }
-    
+
+    float spanX = viewWidth/2 - CELL_D/2;
+    float spanY = viewHeight/2 - CELL_D/2;
+    if (inX < lastScreenViewCenter.x - spanX) {
+        lastScreenEdgeDX = -1;
+        }
+    else if (inX > lastScreenViewCenter.x + spanX) {
+        lastScreenEdgeDX = 1;
+        }
+    else {
+        lastScreenEdgeDX = 0;
+        }
+    if (inY < lastScreenViewCenter.y - spanY) {
+        lastScreenEdgeDY = -1;
+        }
+    else if (inY > lastScreenViewCenter.y + spanY) {
+        lastScreenEdgeDY = 1;
+        }
+    else {
+        lastScreenEdgeDY = 0;
+        }
     }
 
 
