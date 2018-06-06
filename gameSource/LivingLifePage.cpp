@@ -12316,18 +12316,6 @@ void LivingLifePage::step() {
                 lrint( moveScale * 
                        cameraFollowsObject->currentMoveDirection.y );
  
-            if( screenCenterPlayerOffsetX < -viewWidth / 3 ) {
-                screenCenterPlayerOffsetX =  -viewWidth / 3;
-                }
-            if( screenCenterPlayerOffsetX >  viewWidth / 3 ) {
-                screenCenterPlayerOffsetX =  viewWidth / 3;
-                }
-            if( screenCenterPlayerOffsetY < -viewHeight / 5 ) {
-                screenCenterPlayerOffsetY =  -viewHeight / 5;
-                }
-            if( screenCenterPlayerOffsetY >  viewHeight / 6 ) {
-                screenCenterPlayerOffsetY =  viewHeight / 6;
-                }
             }
         else if( false ) { // skip for now
             // stopped moving
@@ -12368,6 +12356,21 @@ void LivingLifePage::step() {
             
             }
 
+        screenCenterPlayerOffsetX -= lastScreenEdgeDX * 10;
+        screenCenterPlayerOffsetY -= lastScreenEdgeDY * 10;
+
+        if( screenCenterPlayerOffsetX < -viewWidth / 3 ) {
+            screenCenterPlayerOffsetX =  -viewWidth / 3;
+            }
+        if( screenCenterPlayerOffsetX >  viewWidth / 3 ) {
+            screenCenterPlayerOffsetX =  viewWidth / 3;
+            }
+        if( screenCenterPlayerOffsetY < -viewHeight / 5 ) {
+            screenCenterPlayerOffsetY =  -viewHeight / 5;
+            }
+        if( screenCenterPlayerOffsetY >  viewHeight / 6 ) {
+            screenCenterPlayerOffsetY =  viewHeight / 6;
+            }
 
         screenTargetPos.x = 
             CELL_D * cameraFollowsObject->currentPos.x - 
