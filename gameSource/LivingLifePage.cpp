@@ -5252,20 +5252,6 @@ void LivingLifePage::draw( doublePair inViewCenter,
         return;
         }
 
-    if( true ) {
-      char *string = autoSprintf( "%4.2f,%4.2f", lastScreenEdge.x, lastScreenEdge.y);
-
-      doublePair pos = lastScreenViewCenter;
-      pos.x += -550;
-      pos.y += 300;
-
-      setDrawColor( 1, 1, 1, 1 );
-      mainFont->drawString( string, 
-                            pos, alignCenter );
-      delete [] string;
-    }
-    
-
     // special mode for teaser video
     if( teaserVideo ) {
         //setDrawColor( 1, 1, 1, 1 );
