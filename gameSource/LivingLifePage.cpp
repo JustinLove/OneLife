@@ -12758,7 +12758,8 @@ void LivingLifePage::step() {
                 }
             else {
 
-                if( o->id == ourID && mouseDown ) {
+                if( o->id == ourID && (mouseDown
+                    || (lastScreenEdge.x != 0 && lastScreenEdge.y != 0)) ) {
                     float worldMouseX, worldMouseY;
                     
                     screenToWorld( lastScreenMouseX,
