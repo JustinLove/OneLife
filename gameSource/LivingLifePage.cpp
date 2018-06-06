@@ -94,8 +94,7 @@ static int screenCenterPlayerOffsetX, screenCenterPlayerOffsetY;
 static float lastMouseX = 0;
 static float lastMouseY = 0;
 
-static float lastScreenEdgeDX = 0;
-static float lastScreenEdgeDY = 0;
+doublePair lastScreenEdge = {0,0};
 
 // set to true to render for teaser video
 static char teaserVideo = false;
@@ -5254,10 +5253,10 @@ void LivingLifePage::draw( doublePair inViewCenter,
         }
 
     if( true ) {
-      char *string = autoSprintf( "%4.0f,%4.0f", lastScreenEdgeDX, lastScreenEdgeDY);
+      char *string = autoSprintf( "%4.2f,%4.2f", lastScreenEdge.x, lastScreenEdge.y);
 
       doublePair pos = lastScreenViewCenter;
-      pos.x += -600;
+      pos.x += -550;
       pos.y += 300;
 
       setDrawColor( 1, 1, 1, 1 );
@@ -12356,8 +12355,8 @@ void LivingLifePage::step() {
             
             }
 
-        screenCenterPlayerOffsetX -= lastScreenEdgeDX * 10;
-        screenCenterPlayerOffsetY -= lastScreenEdgeDY * 10;
+        screenCenterPlayerOffsetX -= lastScreenEdge.x * 10;
+        screenCenterPlayerOffsetY -= lastScreenEdge.y * 10;
 
         if( screenCenterPlayerOffsetX < -viewWidth / 3 ) {
             screenCenterPlayerOffsetX =  -viewWidth / 3;
@@ -13979,23 +13978,16 @@ void LivingLifePage::pointerMove( float inX, float inY ) {
 
     float spanX = viewWidth/2 - CELL_D/2;
     float spanY = viewHeight/2 - CELL_D/2;
-    if (inX < lastScreenViewCenter.x - spanX) {
-        lastScreenEdgeDX = -1;
-        }
-    else if (inX > lastScreenViewCenter.x + spanX) {
-        lastScreenEdgeDX = 1;
-        }
-    else {
-        lastScreenEdgeDX = 0;
-        }
-    if (inY < lastScreenViewCenter.y - spanY) {
-        lastScreenEdgeDY = -1;
-        }
-    else if (inY > lastScreenViewCenter.y + spanY) {
-        lastScreenEdgeDY = 1;
+    doublePair delta = {
+        inX - lastScreenViewCenter.x,
+        inY - lastScreenViewCenter.y
+        };
+    if (fabs(delta.x) > spanX || fabs(delta.y) > spanY) {
+        lastScreenEdge = normalize(delta);
         }
     else {
-        lastScreenEdgeDY = 0;
+        lastScreenEdge.x = 0;
+        lastScreenEdge.y = 0;
         }
     }
 
