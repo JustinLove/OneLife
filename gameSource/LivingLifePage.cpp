@@ -84,6 +84,8 @@ static JenkinsRandomSource remapRandSource( 340403 );
 static int lastScreenMouseX, lastScreenMouseY;
 static char mouseDown = false;
 static int mouseDownFrames = 0;
+static char mouseHeld = false;
+static char edgeAutoRun = false;
 
 static int minMouseDownFrames = 30;
 
@@ -7284,6 +7286,9 @@ void LivingLifePage::step() {
 
     if( mouseDown ) {
         mouseDownFrames++;
+        if ( mouseDownFrames > minMouseDownFrames / frameRateFactor ) {
+            mouseHeld = true;
+            }
         }
     
     if( mServerSocket == -1 ) {
@@ -12766,8 +12771,7 @@ void LivingLifePage::step() {
                 }
             else {
 
-                if( o->id == ourID && (mouseDown
-                    || (lastScreenEdge.x != 0 && lastScreenEdge.y != 0)) ) {
+                if( o->id == ourID && (mouseHeld || edgeAutoRun) ) {
                     float worldMouseX, worldMouseY;
                     
                     screenToWorld( lastScreenMouseX,
@@ -12786,9 +12790,7 @@ void LivingLifePage::step() {
                     // however, if they started by clicking on something
                     // make sure they are really holding the mouse down
                     // (give them time to unpress the mouse)
-                    if( nextActionMessageToSend == NULL ||
-                        mouseDownFrames >  
-                        minMouseDownFrames / frameRateFactor ) {
+                    if( nextActionMessageToSend == NULL ) {
                         
                         double absX = abs( delta.x );
                         double absY = abs( delta.y );
@@ -12799,10 +12801,7 @@ void LivingLifePage::step() {
                             absY > CELL_D * 1 ) {
                             
                             if( ( absX < CELL_D * 4 ||
-                                  absY < CELL_D * 4 ) 
-                                &&
-                                mouseDownFrames >  
-                                minMouseDownFrames / frameRateFactor ) {
+                                  absY < CELL_D * 4 ) ) {
                                 
                                 // they're holding mouse down very close
                                 // to to their character
@@ -12854,6 +12853,9 @@ void LivingLifePage::step() {
                     //trailColor.g = randSource.getRandomBoundedDouble( 0, .5 );
                     //trailColor.b = randSource.getRandomBoundedDouble( 0, .5 );
                     
+                    if( o->id ) {
+                        edgeAutoRun = false;
+                        }
 
                     if( ( o->id != ourID && 
                           ! o->somePendingMessageIsMoreMovement ) 
@@ -14006,6 +14008,7 @@ void LivingLifePage::pointerMove( float inX, float inY ) {
         lastScreenEdge.x = 0;
         lastScreenEdge.y = 0;
         }
+
     }
 
 
@@ -14191,10 +14194,11 @@ void LivingLifePage::pointerDown( float inX, float inY ) {
     int mapX = clickDestX - mMapOffsetX + mMapD / 2;
     int mapY = clickDestY - mMapOffsetY + mMapD / 2;    
     
+    if ( lastScreenEdge.x != 0 && lastScreenEdge.y != 0 ) {
+        edgeAutoRun = true;
+        }
     
-    if( mouseAlreadyDown && 
-        mouseDownFrames >  
-        minMouseDownFrames / frameRateFactor ) {
+    if( mouseHeld || edgeAutoRun ) {
         
         // continuous movement mode
 
@@ -15249,17 +15253,17 @@ void LivingLifePage::pointerUp( float inX, float inY ) {
         return;
         }
 
-    if( mouseDown && 
-        getOurLiveObject()->inMotion 
-        &&
-        mouseDownFrames >  
-        minMouseDownFrames / frameRateFactor ) {
+    if( mouseHeld && 
+        getOurLiveObject()->inMotion ) {
         
         // treat the up as one final click
         pointerDown( inX, inY );
+        // reuse of pointerDown in auto run makes it look like button is held
+        edgeAutoRun = false;
         }
 
     mouseDown = false;
+    mouseHeld = false;
 
 
     // clear mouse over cell
