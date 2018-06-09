@@ -1310,7 +1310,7 @@ void LivingLifePage::computePathToDest( LiveObject *inObject ) {
             inObject->pathToDest[i].y -= pathOffsetY;
             }
 
-        inObject->shouldDrawPathMarks = false;
+        inObject->shouldDrawPathMarks = edgeAutoRun;
         
         // up, down, left, right
         int dirsInPath[4] = { 0, 0, 0, 0 };
