@@ -182,6 +182,21 @@ static void addAncientHomeLocation( int inX, int inY ) {
 
 
 
+static int getArrowDirFromVector( doublePair vector ) {
+    double a = angle( vector );
+
+    // north is 0
+    a -= M_PI / 2; 
+
+    if( a <  - M_PI / 8 ) {
+        a += 2 * M_PI;
+        }
+
+    int index = lrint( 8 * a / ( 2 * M_PI ) );
+
+    return index;
+    }
+
 
 // returns if -1 no home needs to be shown (home unknown)
 // otherwise, returns 0..7 index of arrow
@@ -219,22 +234,8 @@ static int getHomeDir( doublePair inCurrentPlayerPos,
         }
     
     
-    double a = angle( vector );
-
-    // north is 0
-    a -= M_PI / 2; 
-
-    
-    if( a <  - M_PI / 8 ) {
-        a += 2 * M_PI;
-        }
-    
-    int index = lrint( 8 * a / ( 2 * M_PI ) );
-    
-    return index;
+    return getArrowDirFromVector( vector );
     }
-
-
 
 char *getRelationName( LiveObject *inOurObject, LiveObject *inTheirObject ) {
     SimpleVector<int> ourLin = inOurObject->lineage;
@@ -6515,6 +6516,15 @@ void LivingLifePage::draw( doublePair inViewCenter,
             }
             
 
+        if( lastScreenEdge.x != 0 && lastScreenEdge.y != 0 ) {
+            int index = getArrowDirFromVector( lastScreenEdge );
+
+            toggleMultiplicativeBlend( true );
+            setDrawColor( 1, 1, 1, 1 );
+
+            drawSprite( mHomeArrowSprites[index], {lastMouseX,lastMouseY} );
+            toggleMultiplicativeBlend( false );
+            }
         
         if( showBugMessage ) {
             
