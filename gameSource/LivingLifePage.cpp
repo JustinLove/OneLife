@@ -107,6 +107,15 @@ static const char *bugEmail = "jason" "rohrer" "@" "fastmail.fm";
 
 
 
+// if true, pressing S key (capital S)
+// causes current speech and mask to be saved to the screenShots folder
+static char savingSpeechEnabled = false;
+static char savingSpeech = false;
+static char savingSpeechColor = false;
+static char savingSpeechMask = false;
+
+
+
 
 // most recent home at end
 
@@ -716,6 +725,7 @@ typedef enum messageType {
     NAMES,
     APOCALYPSE,
     DYING,
+    HEALED,
     MONUMENT_CALL,
     GRAVE,
     GRAVE_MOVE,
@@ -789,6 +799,9 @@ messageType getMessageType( char *inMessage ) {
         }
     else if( strcmp( copy, "DY" ) == 0 ) {
         returnValue = DYING;
+        }
+    else if( strcmp( copy, "HE" ) == 0 ) {
+        returnValue = HEALED;
         }
     else if( strcmp( copy, "MN" ) == 0 ) {
         returnValue = MONUMENT_CALL;
@@ -1615,7 +1628,8 @@ void LivingLifePage::clearMap() {
             randSource.getRandomBoundedInt( 0, 10000 );
         
         mMapAnimationFrozenRotFrameCount[i] = 0;
-
+        mMapAnimationFrozenRotFrameCountUsed[i] = false;
+        
         mMapFloorAnimationFrameCount[i] = 
             randSource.getRandomBoundedInt( 0, 10000 );
 
@@ -1642,6 +1656,8 @@ void LivingLifePage::clearMap() {
 
 LivingLifePage::LivingLifePage() 
         : mServerSocket( -1 ), 
+          mForceRunTutorial( false ),
+          mTutorialNumber( 0 ),
           mFirstServerMessagesReceived( 0 ),
           mMapGlobalOffsetSet( false ),
           mMapD( MAP_D ),
@@ -1661,9 +1677,15 @@ LivingLifePage::LivingLifePage()
           mChalkBlotSprite( loadWhiteSprite( "chalkBlot.tga" ) ),
           mPathMarkSprite( loadWhiteSprite( "pathMark.tga" ) ),
           mSayField( handwritingFont, 0, 1000, 10, true, NULL,
-                     "ABCDEFGHIJKLMNOPQRSTUVWXYZ.-,'?! " ),
+                     "ABCDEFGHIJKLMNOPQRSTUVWXYZ.-,'?!/ " ),
           mDeathReason( NULL ),
           mShowHighlights( true ) {
+
+    mYumSlipSprites[0] = loadSprite( "yumSlip1.tga", false );
+    mYumSlipSprites[1] = loadSprite( "yumSlip2.tga", false );
+    mYumSlipSprites[2] = loadSprite( "yumSlip3.tga", false );
+    mYumSlipSprites[3] = loadSprite( "yumSlip4.tga", false );
+
     
     mCurMouseOverCell.x = -1;
     mCurMouseOverCell.y = -1;
@@ -1699,6 +1721,13 @@ LivingLifePage::LivingLifePage()
     if( mHungerSound != NULL ) {
         toggleVariance( mHungerSound, true );
         }
+
+
+    mTutorialSound = loadSoundSprite( "otherSounds", "tutorialChime.aiff" );
+
+    if( mTutorialSound != NULL ) {
+        toggleVariance( mTutorialSound, true );
+        }
     
 
     mHungerSlipSprites[0] = loadSprite( "fullSlip.tga", false );
@@ -1720,6 +1749,20 @@ LivingLifePage::LivingLifePage()
     mHomeSlipHideOffset.x = 0;
     mHomeSlipHideOffset.y = -360;
 
+
+    for( int i=0; i<NUM_YUM_SLIPS; i++ ) {    
+        mYumSlipHideOffset[i].x = -600;
+        mYumSlipHideOffset[i].y = -330;
+        }
+    
+    mYumSlipHideOffset[2].x += 70;
+    mYumSlipHideOffset[3].x += 80;
+
+    for( int i=0; i<NUM_YUM_SLIPS; i++ ) {    
+        mYumSlipPosOffset[i] = mYumSlipHideOffset[i];
+        mYumSlipPosTargetOffset[i] = mYumSlipHideOffset[i];
+        }
+    
 
     for( int i=0; i<3; i++ ) {    
         mHungerSlipShowOffsets[i].x = -540;
@@ -1780,6 +1823,7 @@ LivingLifePage::LivingLifePage()
     
     mLiveHintSheetIndex = -1;
 
+    mForceHintRefresh = false;
     mCurrentHintObjectID = 0;
     mCurrentHintIndex = 0;
     
@@ -1796,6 +1840,37 @@ LivingLifePage::LivingLifePage()
         mHintBookmarks[i] = 0;
         }
     
+    mHintFilterString = NULL;
+    mLastHintFilterString = NULL;
+    mPendingFilterString = NULL;
+    
+    
+
+    for( int i=0; i<NUM_HINT_SHEETS; i++ ) {
+        
+        mTutorialHideOffset[i].x = -914;
+        mTutorialFlips[i] = false;
+        
+        if( i % 2 == 1 ) {
+            // odd on right side of screen
+            mTutorialHideOffset[i].x = 914;
+            mTutorialFlips[i] = true;
+            }
+        
+        mTutorialHideOffset[i].y = 430;
+        
+        mTutorialTargetOffset[i] = mTutorialHideOffset[i];
+        mTutorialPosOffset[i] = mTutorialHideOffset[i];
+
+        mTutorialExtraOffset[i].x = 0;
+        mTutorialExtraOffset[i].y = 0;
+        
+        mTutorialMessage[i] = "";
+        }
+    
+    mLiveTutorialSheetIndex = -1;
+    mLiveTutorialTriggerNumber = -1;
+
 
 
     mMap = new int[ mMapD * mMapD ];
@@ -1811,6 +1886,8 @@ LivingLifePage::LivingLifePage()
     mMapAnimationFrameCount =  new double[ mMapD * mMapD ];
     mMapAnimationLastFrameCount =  new double[ mMapD * mMapD ];
     mMapAnimationFrozenRotFrameCount =  new double[ mMapD * mMapD ];
+
+    mMapAnimationFrozenRotFrameCountUsed =  new char[ mMapD * mMapD ];
     
     mMapFloorAnimationFrameCount =  new int[ mMapD * mMapD ];
 
@@ -1887,9 +1964,20 @@ LivingLifePage::LivingLifePage()
         mLineSegmentSprite = loadWhiteSprite( "lineSegment.tga" );
         }
           
-
+    
+    int tutorialDone = SettingsManager::getIntSetting( "tutorialDone", 0 );
+    
+    if( ! tutorialDone ) {
+        mTutorialNumber = 1;
+        }
     }
 
+
+
+
+void LivingLifePage::runTutorial() {
+    mForceRunTutorial = true;
+    }
 
 
 
@@ -1973,6 +2061,8 @@ LivingLifePage::~LivingLifePage() {
     delete [] mMapAnimationFrameCount;
     delete [] mMapAnimationLastFrameCount;
     delete [] mMapAnimationFrozenRotFrameCount;
+    
+    delete [] mMapAnimationFrozenRotFrameCountUsed;
 
     delete [] mMapFloorAnimationFrameCount;
 
@@ -2013,9 +2103,17 @@ LivingLifePage::~LivingLifePage() {
     if( mHungerSound != NULL ) {    
         freeSoundSprite( mHungerSound );
         }
+
+    if( mTutorialSound != NULL ) {    
+        freeSoundSprite( mTutorialSound );
+        }
     
     for( int i=0; i<3; i++ ) {
         freeSprite( mHungerSlipSprites[i] );
+        }
+
+    for( int i=0; i<NUM_YUM_SLIPS; i++ ) {
+        freeSprite( mYumSlipSprites[i] );
         }
 
     freeSprite( mGuiPanelSprite );
@@ -2081,6 +2179,20 @@ LivingLifePage::~LivingLifePage() {
     
     delete [] mHintBookmarks;
 
+    if( mHintFilterString != NULL ) {
+        delete [] mHintFilterString;
+        mHintFilterString = NULL;
+        }
+
+    if( mLastHintFilterString != NULL ) {
+        delete [] mLastHintFilterString;
+        mLastHintFilterString = NULL;
+        }
+
+    if( mPendingFilterString != NULL ) {
+        delete [] mPendingFilterString;
+        mPendingFilterString = NULL;
+        }
 
     if( mDeathReason != NULL ) {
         delete [] mDeathReason;
@@ -2266,7 +2378,25 @@ void LivingLifePage::drawChalkBackgroundString( doublePair inPos,
     else {
         setDrawColor( 1, 1, 1, inFade );
         }
+
+
+
+    char maskOnly = false;
+    char colorOnly = false;
     
+    if( savingSpeech && savingSpeechColor && inFade == 1.0 ) {
+        drawSquare( inPos, 512 );
+        colorOnly = true;
+        }
+    else if( savingSpeech && savingSpeechMask && inFade == 1.0 ) {
+        setDrawColor( 0, 0, 0, 1.0 );
+        drawSquare( inPos, 512 );
+        setDrawColor( 1, 1, 1, 1 );
+        maskOnly = true;
+        }
+
+
+
     // with a fixed seed
     JenkinsRandomSource blotRandSource( 0 );
         
@@ -2313,6 +2443,13 @@ void LivingLifePage::drawChalkBackgroundString( doublePair inPos,
         setDrawColor( 0, 0, 0, inFade );
         }
     
+
+    if( maskOnly ) {
+        // font should add to opacity of mask too
+        setDrawColor( 1, 1, 1, 1 );
+        }
+
+    
     for( int i=0; i<lines->size(); i++ ) {
         char *line = lines->getElementDirect( i );
         
@@ -2324,6 +2461,19 @@ void LivingLifePage::drawChalkBackgroundString( doublePair inPos,
         }
 
     delete lines;
+
+
+    if( colorOnly ) {
+        saveScreenShot( "speechColor" );
+        savingSpeechColor = false;
+        savingSpeechMask = true;
+        }
+    else if( maskOnly ) {
+        saveScreenShot( "speechMask" );
+        savingSpeechMask = false;
+        savingSpeech = false;
+        }
+        
     }
 
 
@@ -2444,6 +2594,7 @@ void LivingLifePage::drawMapCell( int inMapI,
                 mMapAnimationFrameCount[ inMapI ] += animSpeed;
                 mMapAnimationLastFrameCount[ inMapI ] += animSpeed;
                 mMapAnimationFrozenRotFrameCount[ inMapI ] += animSpeed;
+                mMapAnimationFrozenRotFrameCountUsed[ inMapI ] = false;
                 }
             else {
                 mMapAnimationFrameCount[ inMapI ] ++;
@@ -2475,9 +2626,9 @@ void LivingLifePage::drawMapCell( int inMapI,
                         mMapAnimationLastFrameCount[ inMapI ] =
                             mMapAnimationFrameCount[ inMapI ];
                         
-                        mMapAnimationFrameCount[ inMapI ] = 0;
                         
-                        if( newType == moving ) {
+                        if( newType == moving &&
+                            mMapAnimationFrozenRotFrameCountUsed[ inMapI ] ) {
                             mMapAnimationFrameCount[ inMapI ] = 
                                 mMapAnimationFrozenRotFrameCount[ inMapI ];
                             }
@@ -2601,8 +2752,6 @@ void LivingLifePage::drawMapCell( int inMapI,
             }
                 
                 
-        // ignore
-        char used = false;
             
         char flip = mMapTileFlips[ inMapI ];
         
@@ -2731,7 +2880,7 @@ void LivingLifePage::drawMapCell( int inMapI,
                             fadeTargetType,
                             targetTimeVal,
                             frozenRotTimeVal,
-                            &used,
+                            &( mMapAnimationFrozenRotFrameCountUsed[ inMapI ] ),
                             endAnimType,
                             endAnimType,
                             passPos, rot, false, flip,
@@ -2751,7 +2900,7 @@ void LivingLifePage::drawMapCell( int inMapI,
                             fadeTargetType, 
                             targetTimeVal,
                             frozenRotTimeVal,
-                            &used,
+                            &( mMapAnimationFrozenRotFrameCountUsed[ inMapI ] ),
                             endAnimType,
                             endAnimType,
                             passPos, rot,
@@ -3375,6 +3524,19 @@ ObjectAnimPack LivingLifePage::drawLiveObject(
                 babyO->lastHeldByRawPosSet = true;
                 babyO->lastHeldByRawPos = worldHoldPos;
 
+                int hideClosestArmBaby = 0;
+                char hideAllLimbsBaby = false;
+
+                if( babyO->holdingID > 0 ) {
+                    ObjectRecord *babyHoldingObj = 
+                        getObject( babyO->holdingID );
+                    
+                    getArmHoldingParameters( babyHoldingObj, 
+                                             &hideClosestArmBaby,
+                                             &hideAllLimbsBaby );
+                    }
+                
+
                 returnPack =
                     drawObjectAnimPacked( 
                                 babyO->displayID, curHeldType, 
@@ -3392,9 +3554,8 @@ ObjectAnimPack LivingLifePage::drawLiveObject(
                                 false,
                                 inObj->holdingFlip,
                                 computeCurrentAge( babyO ),
-                                // don't hide baby's hands when it is held
-                                false,
-                                false,
+                                hideClosestArmBaby,
+                                hideAllLimbsBaby,
                                 false,
                                 babyO->clothing,
                                 babyO->clothingContained,
@@ -4873,6 +5034,19 @@ void LivingLifePage::draw( doublePair inViewCenter,
                 if( heldPack.inObjectID != -1 ) {
                     // holding something, not drawn yet
                     
+                    if( o->holdingID < 0 ) {
+                        LiveObject *babyO = getLiveObject( - o->holdingID );
+                        if( babyO != NULL 
+                            && babyO->dying && babyO->holdingID > 0  ) {
+                            // baby still holding something while dying,
+                            // likely a wound
+                            // add to pack to draw it on top of baby
+                            heldPack.additionalHeldID =
+                                babyO->holdingID;
+                            }
+                        }
+
+
                     if( ! o->heldPosOverride ) {
                         // not sliding into place
                         // draw it now
@@ -5731,7 +5905,8 @@ void LivingLifePage::draw( doublePair inViewCenter,
     if( hideGuiPanel ) {
         // skip gui
         return;
-        }
+        }    
+        
 
 
     doublePair slipPos = add( mHomeSlipPosOffset, lastScreenViewCenter );
@@ -5765,10 +5940,6 @@ void LivingLifePage::draw( doublePair inViewCenter,
                     for( int i=0; i<NUM_HOME_ARROWS; i++ ) {
                         if( i != foundSolid ) {
                             mHomeArrowStates[i].fade -= 0.0625;
-                            printf( "Fade %d down to %f\n",
-                                    i,
-                                    mHomeArrowStates[i].fade );
-                            
                             if( mHomeArrowStates[i].fade < 0 ) {
                                 mHomeArrowStates[i].fade = 0;
                                 }
@@ -5815,14 +5986,30 @@ void LivingLifePage::draw( doublePair inViewCenter,
 
 
 
+    int lineSpacing = 20;
+
     doublePair notePos = add( mNotePaperPosOffset, lastScreenViewCenter );
 
     if( ! equal( mNotePaperPosOffset, mNotePaperHideOffset ) ) {
         setDrawColor( 1, 1, 1, 1 );
         drawSprite( mNotePaperSprite, notePos );
+        
+
+        doublePair drawPos = notePos;
+
+        drawPos.x += 160;
+        drawPos.y += 79;
+        drawPos.y += 22;
+        
+        drawPos.x += 27;
+
+        setDrawColor( 0, 0, 0, 1 );
+        
+        handwritingFont->drawString( translate( "enterHint" ), 
+                                     drawPos,
+                                     alignRight );
         }
         
-    int lineSpacing = 20;
 
     
 
@@ -6076,6 +6263,65 @@ void LivingLifePage::draw( doublePair inViewCenter,
 
 
 
+    // now draw tutorial sheets
+    if( mTutorialNumber > 0 )
+    for( int i=0; i<NUM_HINT_SHEETS; i++ ) {
+        if( ! equal( mTutorialPosOffset[i], mTutorialHideOffset[i] ) ) {
+            
+            doublePair tutorialPos  = 
+                add( mTutorialPosOffset[i], lastScreenViewCenter );
+            
+            if( i % 2 == 1 ) {
+                tutorialPos = sub( tutorialPos, mTutorialExtraOffset[i] );
+                }
+            else {
+                tutorialPos = add( tutorialPos, mTutorialExtraOffset[i] );
+                }
+            
+            setDrawColor( 1, 1, 1, 1 );
+            // rotate 180
+            drawSprite( mHintSheetSprites[i], tutorialPos, 1.0, 0.5,
+                        mTutorialFlips[i] );
+            
+
+            setDrawColor( 0, 0, 0, 1.0f );
+            double lineSpacing = handwritingFont->getFontHeight() / 2 + 16;
+            
+            int numLines;
+            
+            char **lines = split( mTutorialMessage[i], "##", &numLines );
+            
+            doublePair lineStart = tutorialPos;
+            
+            if( i % 2 == 1 ) {
+                lineStart.x -= 289;
+                //lineStart.x += mTutorialExtraOffset[i].x;
+                }
+            else {
+                lineStart.x += 289;
+                lineStart.x -= mTutorialExtraOffset[i].x;
+                }
+            
+            lineStart.y += 8;
+            for( int l=0; l<numLines; l++ ) {
+                
+                handwritingFont->drawString( lines[l], 
+                                             lineStart, alignLeft );
+                    
+                delete [] lines[l];
+                
+                lineStart.y -= lineSpacing;
+                }
+            delete [] lines;
+            }
+        }
+
+
+
+
+
+
+
     
     setDrawColor( 0, 0, 0, 1 );
     for( int i=0; i<mErasedNoteChars.size(); i++ ) {
@@ -6149,6 +6395,46 @@ void LivingLifePage::draw( doublePair inViewCenter,
             drawSprite( mHungerSlipSprites[i], slipPos );
             }
         }
+
+
+
+    for( int i=0; i<NUM_YUM_SLIPS; i++ ) {
+
+        if( ! equal( mYumSlipPosOffset[i], mYumSlipHideOffset[i] ) ) {
+            doublePair slipPos = 
+                add( mYumSlipPosOffset[i], lastScreenViewCenter );
+            setDrawColor( 1, 1, 1, 1 );
+            drawSprite( mYumSlipSprites[i], slipPos );
+            
+            doublePair messagePos = slipPos;
+            messagePos.y += 11;
+
+            if( mYumSlipNumberToShow[i] != 0 ) {
+                char *s = autoSprintf( "%dx", mYumSlipNumberToShow[i] );
+
+                setDrawColor( 0, 0, 0, 1 );
+                handwritingFont->drawString( s, messagePos, alignCenter );
+                delete [] s;
+                }
+            if( i == 2 || i == 3 ) {
+                setDrawColor( 0, 0, 0, 1 );
+
+                const char *word;
+                
+                if( i == 3 ) {
+                    word = translate( "meh" );
+                    }
+                else {
+                    word = translate( "yum" );
+                    }
+
+                handwritingFont->drawString( word, messagePos, alignCenter );
+                }
+            }
+        }
+
+
+
     
     // info panel at bottom
     setDrawColor( 1, 1, 1, 1 );
@@ -6284,6 +6570,29 @@ void LivingLifePage::draw( doublePair inViewCenter,
                 mOldDesStrings.getElementDirect( i ), pos, alignCenter );
             }
 
+        doublePair yumPos = { lastScreenViewCenter.x - 480, 
+                              lastScreenViewCenter.y - 313 };
+        
+        setDrawColor( 0, 0, 0, 1 );
+        if( mYumBonus > 0 ) {    
+            char *yumString = autoSprintf( "+%d", mYumBonus );
+            
+            pencilFont->drawString( yumString, yumPos, alignLeft );
+            delete [] yumString;
+            }
+        
+        for( int i=0; i<mOldYumBonus.size(); i++ ) {
+            float fade =
+                mOldYumBonusFades.getElementDirect( i );
+            
+            setDrawColor( 0, 0, 0, fade * pencilErasedFontExtraFade );
+            char *yumString = autoSprintf( "+%d", 
+                                           mOldYumBonus.getElementDirect( i ) );
+            pencilErasedFont->drawString( yumString, yumPos, alignLeft );
+            delete [] yumString;
+            }
+
+
 
         doublePair atePos = { lastScreenViewCenter.x, 
                               lastScreenViewCenter.y - 347 };
@@ -6386,6 +6695,14 @@ void LivingLifePage::draw( doublePair inViewCenter,
                                        description );
                     desToDelete = des;
                     }
+                else if( ourLiveObject->dying &&
+                         ourLiveObject->holdingID > 0 ) {
+                    des = autoSprintf( "%s %s",
+                                       translate( "youWith" ),
+                                       getObject( ourLiveObject->holdingID )->
+                                       description );
+                    desToDelete = des;
+                    }
                 else {
                     des = (char*)translate( "you" );
                     if( ourLiveObject->name != NULL ) {
@@ -6407,6 +6724,19 @@ void LivingLifePage::draw( doublePair inViewCenter,
                 if( otherObj != NULL && otherObj->name != NULL ) {
                     des = autoSprintf( "%s - %s",
                                        otherObj->name, des );
+                    desToDelete = des;
+                    }
+                if( otherObj != NULL && 
+                    otherObj->dying && otherObj->holdingID > 0 ) {
+                    des = autoSprintf( "%s - %s %s",
+                                       des,
+                                       translate( "with" ),
+                                       getObject( otherObj->holdingID )->
+                                       description );
+                    if( desToDelete != NULL ) {
+                        delete [] desToDelete;
+                        }
+                    
                     desToDelete = des;
                     }
                 }
@@ -6820,7 +7150,21 @@ static char getTransHintable( TransRecord *inTrans ) {
 int LivingLifePage::getNumHints( int inObjectID ) {
     
 
-    if( mLastHintSortedSourceID == inObjectID ) {
+    char sameFilter = false;
+    
+    if( mLastHintFilterString == NULL &&
+        mHintFilterString == NULL ) {
+        sameFilter = true;
+        }
+    else if( mLastHintFilterString != NULL &&
+             mHintFilterString != NULL &&
+             strcmp( mLastHintFilterString, mHintFilterString ) == 0 ) {
+        sameFilter = true;
+        }
+    
+
+
+    if( mLastHintSortedSourceID == inObjectID && sameFilter ) {
         return mLastHintSortedList.size();
         }
     
@@ -6830,12 +7174,335 @@ int LivingLifePage::getNumHints( int inObjectID ) {
     mLastHintSortedSourceID = inObjectID;
     mLastHintSortedList.deleteAll();
 
+    if( mLastHintFilterString != NULL ) {
+        delete [] mLastHintFilterString;
+        mLastHintFilterString = NULL;
+        }
+
+    if( mHintFilterString != NULL ) {
+        mLastHintFilterString = stringDuplicate( mHintFilterString );
+        }
+    
+    if( ! sameFilter ) {
+        // new filter, clear all bookmarks
+        int maxObjectID = getMaxObjectID();
+        for( int i=0; i<=maxObjectID; i++ ) {
+            mHintBookmarks[i] = 0;
+            }
+        }
+    
+
     // heap sort
     MinPriorityQueue<TransRecord*> queue;
     
     SimpleVector<TransRecord*> *trans = getAllUses( inObjectID );
     
-    int numTrans = trans->size();
+    
+    SimpleVector<TransRecord *> unfilteredTrans;
+    SimpleVector<TransRecord *> filteredTrans;
+
+    for( int i = 0; i<trans->size(); i++ ) {
+        TransRecord *t = trans->getElementDirect( i );
+        
+        if( getTransHintable( t ) ) {
+            unfilteredTrans.push_back( t );
+            filteredTrans.push_back( t );
+            }
+        }
+
+
+    int numFilterHits = 0;
+
+
+    if( mLastHintFilterString != NULL && filteredTrans.size() > 0 ) {        
+        unsigned int filterLength = strlen( mLastHintFilterString );
+        
+        int numHits = 0;
+        int numRemain = 0;
+        ObjectRecord **hits = searchObjects( mLastHintFilterString,
+                                             0,
+                                             200,
+                                             &numHits, &numRemain );
+        
+        SimpleVector<int> hitMatchIDs;
+
+        numFilterHits = numHits;
+
+        for( int i=0; i<numHits; i++ ) {
+            char *des = stringToUpperCase( hits[i]->description );
+            
+            stripDescriptionComment( des );
+        
+            char *searchPos = strstr( des, mLastHintFilterString );
+            
+            // only count if occurrence of filter string matches whole words
+            // not partial words
+            if( searchPos != NULL && strlen( searchPos ) >= filterLength ) {
+                
+                unsigned int remainLen = strlen( searchPos );
+
+                char frontOK = false;
+                char backOK = false;
+                
+                // space or start of string in front of search phrase
+                if( searchPos == des ||
+                    searchPos[-1] == ' ' ) {
+                    frontOK = true;
+                    }
+                
+                // space or end of string after search phrase
+                if( remainLen == filterLength ||
+                    searchPos[+1] == ' ' ) {
+                    backOK = true;
+                    }
+
+                if( frontOK && backOK ) {
+                    hitMatchIDs.push_back( hits[i]->id );
+                    }
+                }
+            }
+        
+        
+        // now find shallowest matching objects
+
+        numHits = hitMatchIDs.size();
+        
+        int shallowestDepth = UNREACHABLE;
+       
+        for( int i=0; i<numHits; i++ ) {
+            
+            int depth = getObjectDepth( hitMatchIDs.getElementDirect( i ) );
+            
+            if( depth < shallowestDepth ) {
+                shallowestDepth = depth;
+                }
+            }
+
+        SimpleVector<int> hitIDs;
+
+        for( int i=0; i<numHits; i++ ) {
+            int id = hitMatchIDs.getElementDirect( i );
+            
+            int depth = getObjectDepth( id );
+            
+            if( depth == shallowestDepth ) {
+                hitIDs.push_back( id );
+                }
+            }
+        
+
+        if( hits != NULL ) {    
+            delete [] hits;
+            }
+        
+
+        numHits = hitIDs.size();
+
+        // list of IDs that are used to make hit objects
+        SimpleVector<int> precursorIDs;
+        
+        if( numHits > 0 ) {
+            
+            if( numHits < 10 ) {
+                
+                for( int i=0; i<numHits; i++ ) {
+                    precursorIDs.push_back( hitIDs.getElementDirect( i ) );
+                    }
+                // go limited number of steps back
+                
+                SimpleVector<int> lastStep = precursorIDs;
+
+                for( int s=0; s<10; s++ ) {
+                    SimpleVector<int> oldLastStep = lastStep;
+                    
+                    lastStep.deleteAll();
+                    
+                    for( int i=0; i<oldLastStep.size(); i++ ) {
+                        int oldStepID = oldLastStep.getElementDirect( i );
+                        int oldStepDepth = getObjectDepth( oldStepID );
+
+
+                        int numResults = 0;
+                        int numRemain = 0;
+                        TransRecord **prodTrans =
+                            searchProduces( oldStepID, 
+                                            0,
+                                            200,
+                                            &numResults, &numRemain );
+                        
+                        if( prodTrans != NULL ) {
+                            
+                            int shallowestTransDepth = UNREACHABLE;
+                            int shallowestTransIndex = -1;
+
+                            for( int t=0; t<numResults; t++ ) {
+                                
+                                int actor = prodTrans[t]->actor;
+                                int target = prodTrans[t]->target;
+                                
+                                int transDepth = UNREACHABLE;
+                                
+                                if( actor > 0 ) {
+                                    transDepth = getObjectDepth( actor );
+                                    if( transDepth == UNREACHABLE ) {
+                                        // is this a category?
+                                        CategoryRecord *cat = 
+                                            getCategory( actor );
+                                        
+                                        if( cat != NULL &&
+                                            cat->objectIDSet.size() > 0 &&
+                                            ! cat->isPattern ) {
+                                            continue;
+                                            }
+                                        }
+                                    }
+                                if( target > 0 ) {
+                                    int targetDepth = getObjectDepth( target );
+                                    if( targetDepth == UNREACHABLE ) {
+                                        // must be category
+                                        // is this a category?
+                                        CategoryRecord *cat = 
+                                            getCategory( target );
+                                        
+                                        if( cat != NULL && 
+                                            cat->objectIDSet.size() > 0 &&
+                                            ! cat->isPattern ) {
+                                            continue;
+                                            }
+                                        }
+                                    if( targetDepth > transDepth ||
+                                        transDepth == UNREACHABLE ) {
+                                        transDepth = targetDepth;
+                                        }
+                                    }
+                                
+                                if( transDepth < shallowestTransDepth ) {
+                                    shallowestTransDepth = transDepth;
+                                    shallowestTransIndex = t;
+                                    }
+                                }
+                            
+                            
+                            if( shallowestTransIndex != -1 &&
+                                shallowestTransDepth < oldStepDepth ) {
+                                int actor = 
+                                    prodTrans[shallowestTransIndex]->actor;
+                                int target = 
+                                    prodTrans[shallowestTransIndex]->target;
+                                
+                                if( actor > 0 &&
+                                    precursorIDs.
+                                    getElementIndex( actor ) == -1 ) {
+
+                                    precursorIDs.push_back( actor );
+                                    lastStep.push_back( actor );
+                                    }
+
+                                if( target > 0 && 
+                                    precursorIDs.
+                                    getElementIndex( target ) == -1 ) {
+
+                                    precursorIDs.push_back( target );
+                                    lastStep.push_back( target );
+                                    }
+                                }
+                            
+                            delete [] prodTrans;
+                            }
+                        }
+                    }
+                }
+            
+            int numPrecursors = precursorIDs.size();
+            
+            for( int i = 0; i<filteredTrans.size(); i++ ) {
+                char matchesFilter = false;
+                TransRecord *t = filteredTrans.getElementDirect( i );
+
+                for( int h=0; h<numHits; h++ ) {
+                    int id = hitIDs.getElementDirect( h );    
+                    
+                    if( t->actor == id ||
+                        t->target == id ||
+                        t->newActor == id ||
+                        t->newTarget == id ) {
+                        matchesFilter = true;
+                        break;
+                        }    
+                    }
+                if( matchesFilter == false ) {
+                    for( int p=0; p<numPrecursors; p++ ) {
+                        int id = precursorIDs.getElementDirect( p );
+                        
+                        if( t->actor != id && t->target != id 
+                            &&
+                            ( t->newActor == id || t->newTarget == id ) ) {
+                            // precursors only count if they actually
+                            // make id, not just if they use it
+                            matchesFilter = true;
+                            break;
+                            }
+                        }
+                    }
+                
+                if( ! matchesFilter ) {
+                    filteredTrans.deleteElement( i );
+                    i--;
+                    }
+                }
+            }
+
+        }
+
+    
+    int numTrans = filteredTrans.size();
+
+    int numRelevant = numTrans;
+
+    if( numTrans == 0 && unfilteredTrans.size() > 0 ) {
+        // after filtering, no transititions are left
+        // show all trans instead
+        for( int i = 0; i<unfilteredTrans.size(); i++ ) {
+            filteredTrans.push_back( unfilteredTrans.getElementDirect( i ) );
+            }
+        numTrans = filteredTrans.size();
+        }
+    
+    
+
+    int lastSheet = NUM_HINT_SHEETS - 1;
+    
+    if( mPendingFilterString != NULL ) {
+        delete [] mPendingFilterString;
+        mPendingFilterString = NULL;
+        }
+
+    if( mLastHintFilterString != NULL ) {
+
+        if( mPendingFilterString != NULL ) {
+            delete [] mPendingFilterString;
+            mPendingFilterString = NULL;
+            }
+        
+        if( numRelevant == 0 || numFilterHits == 0 ) {
+            mPendingFilterString = autoSprintf( "%s %s %s",
+                                                translate( "making" ),
+                                                mLastHintFilterString,
+                                                translate( "noneRelevant" ) );
+            }
+        else {    
+            mPendingFilterString = autoSprintf( "%s %s",
+                                                translate( "making" ),
+                                                mLastHintFilterString );
+            }
+        
+        }
+    else {
+        mHintTargetOffset[ lastSheet ] = mHintHideOffset[ lastSheet ];
+        }
+
+
+
 
     // skip any that repeat exactly the same string
     // (example:  goose pond in different states)
@@ -6844,76 +7511,73 @@ int LivingLifePage::getNumHints( int inObjectID ) {
     
 
     for( int i=0; i<numTrans; i++ ) {
-        TransRecord *tr = trans->getElementDirect( i );
+        TransRecord *tr = filteredTrans.getElementDirect( i );
         
-        if( getTransHintable( tr ) ) {
+        int depth = 0;
             
-            int depth = 0;
-            
-            if( tr->actor > 0 && tr->actor != inObjectID ) {
-                depth = getObjectDepth( tr->actor );
-                }
-            else if( tr->target > 0 && tr->target != inObjectID ) {
-                depth = getObjectDepth( tr->target );
-                }
+        if( tr->actor > 0 && tr->actor != inObjectID ) {
+            depth = getObjectDepth( tr->actor );
+            }
+        else if( tr->target > 0 && tr->target != inObjectID ) {
+            depth = getObjectDepth( tr->target );
+            }
             
             
-            char stringAlreadyPresent = false;
+        char stringAlreadyPresent = false;
             
-            if( tr->actor > 0 && tr->actor != inObjectID ) {
-                ObjectRecord *otherObj = getObject( tr->actor );
+        if( tr->actor > 0 && tr->actor != inObjectID ) {
+            ObjectRecord *otherObj = getObject( tr->actor );
                 
-                char *trimmedDesc = stringDuplicate( otherObj->description );
-                stripDescriptionComment( trimmedDesc );
+            char *trimmedDesc = stringDuplicate( otherObj->description );
+            stripDescriptionComment( trimmedDesc );
 
-                for( int s=0; s<otherActorStrings.size(); s++ ) {
+            for( int s=0; s<otherActorStrings.size(); s++ ) {
                     
-                    if( strcmp( trimmedDesc, 
-                                otherActorStrings.getElementDirect( s ) )
-                        == 0 ) {
+                if( strcmp( trimmedDesc, 
+                            otherActorStrings.getElementDirect( s ) )
+                    == 0 ) {
                         
-                        stringAlreadyPresent = true;
-                        break;
-                        }    
-                    }
-
-                if( !stringAlreadyPresent ) {
-                    otherActorStrings.push_back( trimmedDesc );
-                    }
-                else {
-                    delete [] trimmedDesc;
-                    }
-                }
-            
-            if( tr->target > 0 && tr->target != inObjectID ) {
-                ObjectRecord *otherObj = getObject( tr->target );
-                
-                char *trimmedDesc = stringDuplicate( otherObj->description );
-                stripDescriptionComment( trimmedDesc );
-
-                for( int s=0; s<otherTargetStrings.size(); s++ ) {
-                    
-                    if( strcmp( trimmedDesc, 
-                                otherTargetStrings.getElementDirect( s ) )
-                        == 0 ) {
-                        
-                        stringAlreadyPresent = true;
-                        break;
-                        }    
-                    }
-
-                if( !stringAlreadyPresent ) {
-                    otherTargetStrings.push_back( trimmedDesc );
-                    }
-                else {
-                    delete [] trimmedDesc;
-                    }
+                    stringAlreadyPresent = true;
+                    break;
+                    }    
                 }
 
-            
             if( !stringAlreadyPresent ) {
-                queue.insert( tr, depth );
+                otherActorStrings.push_back( trimmedDesc );
                 }
+            else {
+                delete [] trimmedDesc;
+                }
+            }
+            
+        if( tr->target > 0 && tr->target != inObjectID ) {
+            ObjectRecord *otherObj = getObject( tr->target );
+                
+            char *trimmedDesc = stringDuplicate( otherObj->description );
+            stripDescriptionComment( trimmedDesc );
+
+            for( int s=0; s<otherTargetStrings.size(); s++ ) {
+                    
+                if( strcmp( trimmedDesc, 
+                            otherTargetStrings.getElementDirect( s ) )
+                    == 0 ) {
+                        
+                    stringAlreadyPresent = true;
+                    break;
+                    }    
+                }
+
+            if( !stringAlreadyPresent ) {
+                otherTargetStrings.push_back( trimmedDesc );
+                }
+            else {
+                delete [] trimmedDesc;
+                }
+            }
+
+            
+        if( !stringAlreadyPresent ) {
+            queue.insert( tr, depth );
             }
         }
     
@@ -7386,7 +8050,6 @@ void LivingLifePage::step() {
                     mMapAnimationFrozenRotFrameCount[ i ] = 
                         mMapAnimationLastFrameCount[ i ];
                     
-                    mMapAnimationFrameCount[ i ] = 0;
                     }
                 }
             else {
@@ -7601,8 +8264,49 @@ void LivingLifePage::step() {
             }
         }
 
+
+
+    // update yum slip positions
+    for( int i=0; i<NUM_YUM_SLIPS; i++ ) {
+        
+        if( ! equal( mYumSlipPosOffset[i], mYumSlipPosTargetOffset[i] ) ) {
+            doublePair delta = 
+                sub( mYumSlipPosTargetOffset[i], mYumSlipPosOffset[i] );
+            
+            double d = 
+                distance( mYumSlipPosTargetOffset[i], mYumSlipPosOffset[i] );
+            
+            
+            if( d <= 1 ) {
+                mYumSlipPosOffset[i] = mYumSlipPosTargetOffset[i];
+                }
+            else {
+                int speed = frameRateFactor * 4;
+                
+                if( d < 8 ) {
+                    speed = lrint( frameRateFactor * d / 2 );
+                    }
+                
+                if( speed > d ) {
+                    speed = floor( d );
+                    }
+                
+                if( speed < 1 ) {
+                    speed = 1;
+                    }
+                
+                doublePair dir = normalize( delta );
+                
+                mYumSlipPosOffset[i] = 
+                    add( mYumSlipPosOffset[i],
+                         mult( dir, speed ) );
+                }        
+            }
+        }
     
 
+    
+    // update home slip positions
     if( ! equal( mHomeSlipPosOffset, mHomeSlipPosTargetOffset ) ) {
         doublePair delta = 
             sub( mHomeSlipPosTargetOffset, mHomeSlipPosOffset );
@@ -7667,15 +8371,19 @@ void LivingLifePage::step() {
         getNumHints( mNextHintObjectID ) > 0 ) {
         
         if( mCurrentHintObjectID != mNextHintObjectID ||
-            mCurrentHintIndex != mNextHintIndex ) {
+            mCurrentHintIndex != mNextHintIndex ||
+            mForceHintRefresh ) {
             
+            mForceHintRefresh = false;
+
             int newLiveSheetIndex = 0;
 
             if( mLiveHintSheetIndex != -1 ) {
                 mHintTargetOffset[mLiveHintSheetIndex] = mHintHideOffset[0];
                 
+                // save last hint sheet for filter
                 newLiveSheetIndex = 
-                    (mLiveHintSheetIndex + 1 ) % NUM_HINT_SHEETS;
+                    (mLiveHintSheetIndex + 1 ) % ( NUM_HINT_SHEETS - 1 );
                 
                 }
             
@@ -7686,6 +8394,11 @@ void LivingLifePage::step() {
             mHintTargetOffset[i] = mHintHideOffset[0];
             mHintTargetOffset[i].y += 100;
             
+            if( mLastHintFilterString != NULL ) {
+                mHintTargetOffset[i].y += 30;
+                }
+            
+
             mHintMessageIndex[ i ] = mNextHintIndex;
             
             mCurrentHintObjectID = mNextHintObjectID;
@@ -7731,8 +8444,9 @@ void LivingLifePage::step() {
         if( mLiveHintSheetIndex != -1 ) {
             mHintTargetOffset[mLiveHintSheetIndex] = mHintHideOffset[0];
             
+            // save last hint sheet for filter
             newLiveSheetIndex = 
-                (mLiveHintSheetIndex + 1 ) % NUM_HINT_SHEETS;
+                (mLiveHintSheetIndex + 1 ) % ( NUM_HINT_SHEETS - 1 );
             
             }
         
@@ -7741,7 +8455,50 @@ void LivingLifePage::step() {
         mCurrentHintObjectID = mNextHintObjectID;
         }
     
+    
+        
+    int lastSheet = NUM_HINT_SHEETS - 1;
+    if( mPendingFilterString != NULL &&
+        ( mHintMessage[ lastSheet ] == NULL ||
+          strcmp( mHintMessage[ lastSheet ], mPendingFilterString ) != 0 ) ) {
+        
+        mHintTargetOffset[ lastSheet ] = mHintHideOffset[ lastSheet ];
+        
+        if( equal( mHintPosOffset[ lastSheet ], 
+                   mHintHideOffset[ lastSheet ] ) ) {
+            
+            mNumTotalHints[ lastSheet ] = 1;
+            mHintMessageIndex[ lastSheet ] = 0;
+            
+            mHintTargetOffset[ lastSheet ].y += 53;
 
+            if( mHintMessage[ lastSheet ] != NULL ) {
+                delete [] mHintMessage[ lastSheet ];
+                }
+            
+            mHintMessage[ lastSheet ] = 
+                stringDuplicate( mPendingFilterString );
+
+            double len = 
+                handwritingFont->measureString( mHintMessage[ lastSheet ] );
+            
+            mHintExtraOffset[ lastSheet ].x = - len;
+            }
+        
+        }
+    else if( mPendingFilterString == NULL &&
+             mHintMessage[ lastSheet ] != NULL ) {
+        mHintTargetOffset[ lastSheet ] = mHintHideOffset[ lastSheet ];
+        
+        if( equal( mHintPosOffset[ lastSheet ], 
+                   mHintHideOffset[ lastSheet ] ) ) {
+            
+            // done hiding
+            delete [] mHintMessage[ lastSheet ];
+            mHintMessage[ lastSheet ] = NULL;
+            }
+        }
+    
 
     for( int i=0; i<NUM_HINT_SHEETS; i++ ) {
         
@@ -7777,6 +8534,193 @@ void LivingLifePage::step() {
                 
                 mHintPosOffset[i] = 
                     add( mHintPosOffset[i],
+                         mult( dir, speed ) );
+                }
+            
+            }
+        }
+
+
+    // should new tutorial sheet be shown?
+    if( mTutorialNumber > 0 && ourObject != NULL ) {
+        
+        // search map for closest tutorial trigger
+
+        double closeDist = 999999;
+        int closestNumber = -1;
+
+        char closestIsFinal = false;
+        
+
+        for( int y=0; y<mMapD; y++ ) {
+        
+            int worldY = y + mMapOffsetY - mMapD / 2;
+            
+            for( int x=0; x<mMapD; x++ ) {
+                
+                int worldX = x + mMapOffsetX - mMapD / 2;
+                
+                doublePair worldPos  = { (double)worldX, (double)worldY };
+                
+                double dist = distance( worldPos, ourObject->currentPos );
+                
+                if( dist < closeDist ) {
+                    
+                    int mapI = y * mMapD + x;
+                    
+                    int mapID = mMap[ mapI ];
+                    
+                    if( mapID > 0 ) {
+                        
+                        ObjectRecord *mapO = getObject( mapID );
+                        
+                        char *tutLoc = strstr( mapO->description, "tutorial" );
+                        if( tutLoc != NULL ) {
+                            
+                            int tutPage = -1;
+                            
+                            sscanf( tutLoc, "tutorial %d", &tutPage );
+                            
+
+                            if( tutPage != -1 ) {
+                                
+                                closeDist = dist;
+                                closestNumber = tutPage;
+                                
+                                if( strstr( mapO->description, "done" ) 
+                                    != NULL ) {
+                                    closestIsFinal = true;
+                                    }
+                                else {
+                                    closestIsFinal = false;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        
+
+        if( closeDist > 4 &&
+            mLiveTutorialTriggerNumber != -1 ) {
+            // don't set a new one unless we get close enough to it
+            // OR we haven't even set the first one yet.
+            closestNumber = -1;
+            }
+        
+
+        
+        if( closestNumber > -1 && 
+            closestNumber != mLiveTutorialTriggerNumber ) {
+            
+            // different tutorial stone that what is showing
+            
+            if( closestIsFinal ) {
+                // done with totorial for good, unless they request it
+                SettingsManager::setSetting( "tutorialDone", 1 );
+                }
+            
+
+            if( mLiveTutorialSheetIndex >= 0 ) {
+                mTutorialTargetOffset[ mLiveTutorialSheetIndex ] =
+                    mTutorialHideOffset[ mLiveTutorialSheetIndex ];
+                }
+            mLiveTutorialSheetIndex ++;
+            
+            if( mLiveTutorialSheetIndex >= NUM_HINT_SHEETS ) {
+                mLiveTutorialSheetIndex -= NUM_HINT_SHEETS;
+                }
+
+            mLiveTutorialTriggerNumber = closestNumber;
+            
+            char *transString = autoSprintf( "tutorial_%d", 
+                                             mLiveTutorialTriggerNumber );
+            
+            mTutorialMessage[ mLiveTutorialSheetIndex ] = 
+                translate( transString );
+
+
+            mTutorialTargetOffset[ mLiveTutorialSheetIndex ] =
+                mTutorialHideOffset[ mLiveTutorialSheetIndex ];
+            
+            mTutorialTargetOffset[ mLiveTutorialSheetIndex ].y -= 100;
+            
+            delete [] transString;
+
+
+            double longestLine = 0;
+            
+            int numLines;
+            char **lines = split( mTutorialMessage[ mLiveTutorialSheetIndex ], 
+                                  "#", &numLines );
+                
+            for( int l=0; l<numLines; l++ ) {
+                double len = handwritingFont->measureString( lines[l] );
+                
+                if( len > longestLine ) {
+                    longestLine = len;
+                    }
+                delete [] lines[l];
+                }
+            delete [] lines;
+
+            mTutorialExtraOffset[ mLiveTutorialSheetIndex ].x = longestLine;
+            }
+        }
+    
+
+
+
+    // pos for tutorial sheets
+    // don't start sliding first sheet until map loaded
+    if( mTutorialNumber > 0 && mDoneLoadingFirstObjectSet )
+    for( int i=0; i<NUM_HINT_SHEETS; i++ ) {
+        
+        if( ! equal( mTutorialPosOffset[i], mTutorialTargetOffset[i] ) ) {
+            doublePair delta = 
+                sub( mTutorialTargetOffset[i], mTutorialPosOffset[i] );
+            
+            double d = distance( mTutorialTargetOffset[i], 
+                                 mTutorialPosOffset[i] );
+            
+            
+            if( d <= 1 ) {
+                mTutorialPosOffset[i] = mTutorialTargetOffset[i];
+                
+                if( equal( mTutorialTargetOffset[i], 
+                           mTutorialHideOffset[i] ) ) {
+                    }
+                else {
+
+                    double stereoPos = 0.25;
+                    
+                    if( i % 2 != 0 ) {
+                        stereoPos = 0.75;
+                        }
+                    
+                    playSoundSprite( mTutorialSound, 0.18, stereoPos );
+                    }
+                }
+            else {
+                int speed = frameRateFactor * 4;
+                
+                if( d < 8 ) {
+                    speed = lrint( frameRateFactor * d / 2 );
+                    }
+                
+                if( speed > d ) {
+                    speed = floor( d );
+                    }
+                
+                if( speed < 1 ) {
+                    speed = 1;
+                    }
+                
+                doublePair dir = normalize( delta );
+                
+                mTutorialPosOffset[i] = 
+                    add( mTutorialPosOffset[i],
                          mult( dir, speed ) );
                 }
             
@@ -8020,16 +8964,18 @@ void LivingLifePage::step() {
             
             char *outMessage;
             if( strlen( userEmail ) <= 80 ) {    
-                outMessage = autoSprintf( "LOGIN %-80s %s %s#",
-                                          userEmail, pwHash, keyHash );
+                outMessage = autoSprintf( "LOGIN %-80s %s %s %d#",
+                                          userEmail, pwHash, keyHash,
+                                          mTutorialNumber );
                 }
             else {
                 // their email is too long for this trick
                 // don't cut it off.
                 // but note that the playback will fail if email.ini
                 // doesn't match on the playback machine
-                outMessage = autoSprintf( "LOGIN %s %s %s#",
-                                          userEmail, pwHash, keyHash );
+                outMessage = autoSprintf( "LOGIN %s %s %s %d#",
+                                          userEmail, pwHash, keyHash,
+                                          mTutorialNumber );
                 }
             
             delete [] pwHash;
@@ -8230,6 +9176,9 @@ void LivingLifePage::step() {
             double *newMapAnimationFrozenRotFameCount = 
                 new double[ mMapD * mMapD ];
 
+            char *newMapAnimationFrozenRotFameCountUsed = 
+                new char[ mMapD * mMapD ];
+
             int *newMapFloorAnimationFrameCount = new int[ mMapD * mMapD ];
         
             AnimType *newMapCurAnimType = new AnimType[ mMapD * mMapD ];
@@ -8274,6 +9223,7 @@ void LivingLifePage::step() {
                     newMapAnimationFrameCount[i];
                 
                 newMapAnimationFrozenRotFameCount[i] = 0;
+                newMapAnimationFrozenRotFameCountUsed[i] = false;
                 
                 newMapFloorAnimationFrameCount[i] =
                     lrint( getXYRandom( worldX, worldY ) * 13853 );
@@ -8318,6 +9268,9 @@ void LivingLifePage::step() {
                     newMapAnimationFrozenRotFameCount[i] = 
                         mMapAnimationFrozenRotFrameCount[oI];
 
+                    newMapAnimationFrozenRotFameCountUsed[i] = 
+                        mMapAnimationFrozenRotFrameCountUsed[oI];
+
                     newMapFloorAnimationFrameCount[i] = 
                         mMapFloorAnimationFrameCount[oI];
                     
@@ -8355,6 +9308,10 @@ void LivingLifePage::step() {
             memcpy( mMapAnimationFrozenRotFrameCount, 
                     newMapAnimationFrozenRotFameCount, 
                     mMapD * mMapD * sizeof( double ) );
+
+            memcpy( mMapAnimationFrozenRotFrameCountUsed, 
+                    newMapAnimationFrozenRotFameCountUsed, 
+                    mMapD * mMapD * sizeof( char ) );
 
             
             memcpy( mMapFloorAnimationFrameCount, 
@@ -8401,6 +9358,7 @@ void LivingLifePage::step() {
             delete [] newMapAnimationFrameCount;
             delete [] newMapAnimationLastFrameCount;
             delete [] newMapAnimationFrozenRotFameCount;
+            delete [] newMapAnimationFrozenRotFameCountUsed;
             delete [] newMapFloorAnimationFrameCount;
             
             delete [] newMapCurAnimType;
@@ -8853,9 +9811,12 @@ void LivingLifePage::step() {
                                     mMapCurAnimType[ mapI ] = moving;
                                     mMapLastAnimFade[ mapI ] = 1;
 
-                                    mMapAnimationFrameCount[ mapI ] =
-                                        mMapAnimationFrozenRotFrameCount[ 
-                                            oldMapI ];
+                                    if( mMapAnimationFrozenRotFrameCountUsed[
+                                            mapI ] ) {
+                                        mMapAnimationFrameCount[ mapI ] =
+                                            mMapAnimationFrozenRotFrameCount[ 
+                                                oldMapI ];
+                                        }
                                     }
                                 
                                 int oldLocID = mMap[ oldMapI ];
@@ -9483,6 +10444,7 @@ void LivingLifePage::step() {
                 
                 int responsiblePlayerID = -1;
                 
+                int heldYum = 0;
 
                 int numRead = sscanf( lines[i], 
                                       "%d %d "
@@ -9490,7 +10452,8 @@ void LivingLifePage::step() {
                                       "%d "
                                       "%d %d "
                                       "%499s %d %d %d %d %f %d %d %d %d "
-                                      "%lf %lf %lf %499s %d %d %d",
+                                      "%lf %lf %lf %499s %d %d %d "
+                                      "%d",
                                       &( o.id ),
                                       &( o.displayID ),
                                       &facingOverride,
@@ -9513,10 +10476,12 @@ void LivingLifePage::step() {
                                       clothingBuffer,
                                       &justAte,
                                       &justAteID,
-                                      &responsiblePlayerID );
+                                      &responsiblePlayerID,
+                                      &heldYum);
                 
                 
-                if( numRead == 23 ) {
+                // heldYum is 24th value, optional
+                if( numRead >= 23 ) {
 
                     applyReceiveOffset( &actionTargetX, &actionTargetY );
                     applyReceiveOffset( &heldOriginX, &heldOriginY );
@@ -9646,6 +10611,26 @@ void LivingLifePage::step() {
                         existing->id == ourID ) {
                         // got a PU for self
                         
+                        mYumSlipPosTargetOffset[2] = mYumSlipHideOffset[2];
+                        mYumSlipPosTargetOffset[3] = mYumSlipHideOffset[3];
+                        
+                        int slipIndexToShow = -1;
+                        if( heldYum ) {
+                            // YUM
+                            slipIndexToShow = 2;
+                            }
+                        else {
+                            if( o.holdingID > 0 &&
+                                getObject( o.holdingID )->foodValue > 0 ) {
+                                // MEH
+                                slipIndexToShow = 3;
+                                }
+                            }
+                        
+                        if( slipIndexToShow >= 0 ) {
+                            mYumSlipPosTargetOffset[slipIndexToShow].y += 36;
+                            }
+
                         if( existing->lastActionSendStartTime != 0 ) {
                             
                             // PU for an action that we sent
@@ -11988,6 +12973,54 @@ void LivingLifePage::step() {
                 }
             delete [] lines;
             }
+        else if( type == HEALED ) {
+            int numLines;
+            char **lines = split( message, "\n", &numLines );
+            
+            if( numLines > 0 ) {
+                // skip first
+                delete [] lines[0];
+                }
+            
+            
+            for( int i=1; i<numLines; i++ ) {
+
+                int id;
+                int numRead = sscanf( lines[i], "%d ",
+                                      &( id ) );
+
+                if( numRead == 1 ) {
+                    for( int j=0; j<gameObjects.size(); j++ ) {
+                        if( gameObjects.getElement(j)->id == id ) {
+                            
+                            LiveObject *existing = gameObjects.getElement(j);
+                            
+                            existing->dying = false;
+                            
+                            // their wound will be gone after this
+                            // play decay sound, if any, for their final
+                            // wound state
+                            if( existing->holdingID > 0 ) {
+                                ObjectRecord *held = 
+                                    getObject( existing->holdingID );
+                                
+                                if( held->decaySound.numSubSounds > 0 ) {    
+                                    
+                                    playSound( 
+                                        held->decaySound,
+                                        getVectorFromCamera( 
+                                            existing->currentPos.x, 
+                                            existing->currentPos.y ) );
+                                    }
+                                }
+                            break;
+                            }
+                        }
+                    }
+                delete [] lines[i];
+                }
+            delete [] lines;
+            }
         else if( type == PLAYER_OUT_OF_RANGE ) {
             int numLines;
             char **lines = split( message, "\n", &numLines );
@@ -12034,14 +13067,87 @@ void LivingLifePage::step() {
                 int foodCapacity;
                 double lastSpeed;
 
-                sscanf( message, "FX\n%d %d %d %d %lf %d", 
+                int oldYumBonus = mYumBonus;
+                mYumBonus = 0;
+                
+                int oldYumMultiplier = mYumMultiplier;
+                mYumMultiplier = 0;
+                
+
+                sscanf( message, "FX\n%d %d %d %d %lf %d %d %d", 
                         &( foodStore ),
                         &( foodCapacity ),
                         &( lastAteID ),
                         &( lastAteFillMax ),
                         &( lastSpeed ),
-                        &responsiblePlayerID );
+                        &responsiblePlayerID,
+                        &mYumBonus, &mYumMultiplier );
+
+
                 
+                if( oldYumBonus != mYumBonus ) {
+                    // pull out of old stack, if present
+                    for( int i=0; i<mOldYumBonus.size(); i++ ) {
+                        if( mOldYumBonus.getElementDirect( i ) == mYumBonus ) {
+                            mOldYumBonus.deleteElement( i );
+                            i--;
+                            }
+                        }
+                    
+                    // fade existing
+                    for( int i=0; i<mOldYumBonus.size(); i++ ) {
+                        float fade =
+                            mOldYumBonusFades.getElementDirect( i );
+                        
+                        if( fade > 0.5 ) {
+                            fade -= 0.20;
+                            }
+                        else {
+                            fade -= 0.1;
+                            }
+                        
+                        *( mOldYumBonusFades.getElement( i ) ) = fade;
+                        if( fade <= 0 ) {
+                            mOldYumBonus.deleteElement( i );
+                            mOldYumBonusFades.deleteElement( i );
+                            i--;
+                            }
+                        }                    
+
+                    if( oldYumBonus != 0 ) {
+                        // push on top of stack
+                        mOldYumBonus.push_back( oldYumBonus );
+                        mOldYumBonusFades.push_back( 1.0f );
+                        }
+                    }
+                
+                if( mYumMultiplier != oldYumMultiplier ) {
+                    int oldSlipIndex = -1;
+                    int newSlipIndex = 0;
+                    
+                    for( int i=0; i<2; i++ ) {
+                        if( mYumSlipNumberToShow[i] == oldYumMultiplier ) {
+                            oldSlipIndex = i;
+                            newSlipIndex = ( i + 1 ) % 2;
+                            }
+                        }
+                    if( oldSlipIndex != -1 ) {
+                        mYumSlipPosTargetOffset[ oldSlipIndex ] =
+                            mYumSlipHideOffset[ oldSlipIndex ];
+                        }
+
+                    mYumSlipPosTargetOffset[ newSlipIndex ] =
+                        mYumSlipHideOffset[ newSlipIndex ];
+                    
+                    if( mYumMultiplier > 0 ) {
+                        mYumSlipPosTargetOffset[ newSlipIndex ].y += 36;
+                        }
+                    mYumSlipNumberToShow[ newSlipIndex ] = mYumMultiplier;
+                    }
+                
+                
+                
+
                 if( responsiblePlayerID != -1 &&
                     getLiveObject( responsiblePlayerID ) != NULL &&
                     getLiveObject( responsiblePlayerID )->
@@ -12190,7 +13296,7 @@ void LivingLifePage::step() {
 
                         mHungerSlipVisible = 0;
                         }
-                    else if( ourLiveObject->foodStore <= 3 &&
+                    else if( ourLiveObject->foodStore <= 4 &&
                              computeCurrentAge( ourLiveObject ) < 57 ) {
                         
                         // don't play hunger sounds at end of life
@@ -12218,7 +13324,7 @@ void LivingLifePage::step() {
                                 }
                             }
                         }
-                    else if( ourLiveObject->foodStore <= 6 ) {
+                    else if( ourLiveObject->foodStore <= 8 ) {
                         mHungerSlipVisible = 1;
                         mPulseHungerSound = false;
                         }
@@ -12226,7 +13332,7 @@ void LivingLifePage::step() {
                         mHungerSlipVisible = -1;
                         }
 
-                    if( ourLiveObject->foodStore > 3 ||
+                    if( ourLiveObject->foodStore > 4 ||
                         computeCurrentAge( ourLiveObject ) >= 57 ) {
                         // restore music
                         setMusicLoudness( musicLoudness );
@@ -12277,6 +13383,14 @@ void LivingLifePage::step() {
         if( ourLiveObject->lineage.size() == 0  && sayCap < 30 ) {
             // eve has a larger say limit
             sayCap = 30;
+            }
+        char *currentText = mSayField.getText();
+        
+        if( strlen( currentText ) > 0 && currentText[0] == '/' ) {
+            // typing a filter
+            // hard cap at 25, regardless of age
+            // don't want them typing long filters that overflow the display
+            sayCap = 25;
             }
 
         mSayField.setMaxLength( sayCap );
@@ -13243,6 +14357,20 @@ void LivingLifePage::step() {
     }
 
 
+
+
+// previous function (step) is so long that it's slowin down Emacs
+// on the following function
+// put a dummy function here to help emacs.
+static void dummyFunctionA() {
+    // call self to avoid compiler warning for unused function
+    if( false ) {
+        dummyFunctionA();
+        }
+    }
+
+
+
   
 void LivingLifePage::makeActive( char inFresh ) {
     // unhold E key
@@ -13282,6 +14410,57 @@ void LivingLifePage::makeActive( char inFresh ) {
     if( !inFresh ) {
         return;
         }
+
+    mForceHintRefresh = false;
+    mLastHintSortedSourceID = 0;
+    mLastHintSortedList.deleteAll();
+
+    for( int i=0; i<NUM_HINT_SHEETS; i++ ) {
+        mHintTargetOffset[i] = mHintHideOffset[i];
+        mHintPosOffset[i] = mHintHideOffset[i];
+        }
+
+    mCurrentHintObjectID = 0;
+    mCurrentHintIndex = 0;
+    
+    mNextHintObjectID = 0;
+    mNextHintIndex = 0;
+    
+    
+    if( mHintFilterString != NULL ) {
+        delete [] mHintFilterString;
+        mHintFilterString = NULL;
+        }
+
+    if( mLastHintFilterString != NULL ) {
+        delete [] mLastHintFilterString;
+        mLastHintFilterString = NULL;
+        }
+
+    if( mPendingFilterString != NULL ) {
+        delete [] mPendingFilterString;
+        mPendingFilterString = NULL;
+        }
+
+
+    int tutorialDone = SettingsManager::getIntSetting( "tutorialDone", 0 );
+    
+    if( ! tutorialDone ) {
+        mTutorialNumber = 1;
+        }
+    else {
+        mTutorialNumber = 0;
+        }
+    
+    if( mForceRunTutorial ) {
+        mTutorialNumber = 1;
+        mForceRunTutorial = false;
+        }
+    
+
+    savingSpeechEnabled = SettingsManager::getIntSetting( "allowSavingSpeech",
+                                                          0 );
+
 
     for( int i=0; i<mGraveInfo.size(); i++ ) {
         delete [] mGraveInfo.getElement(i)->relationName;
@@ -13343,6 +14522,20 @@ void LivingLifePage::makeActive( char inFresh ) {
     mOldLastAteFades.deleteAll();
     mOldLastAteBarFades.deleteAll();
     
+    mYumBonus = 0;
+    mOldYumBonus.deleteAll();
+    mOldYumBonusFades.deleteAll();
+    
+    mYumMultiplier = 0;
+    
+    
+    for( int i=0; i<NUM_YUM_SLIPS; i++ ) {
+        mYumSlipPosOffset[i] = mYumSlipHideOffset[i];
+        mYumSlipPosTargetOffset[i] = mYumSlipHideOffset[i];
+        mYumSlipNumberToShow[i] = 0;
+        }
+    
+
     mCurrentArrowI = 0;
     mCurrentArrowHeat = -1;
     if( mCurrentDes != NULL ) {
@@ -13807,7 +15000,109 @@ void LivingLifePage::checkForPointerHit( PointerHitRecord *inRecord,
         // count it now, if we didn't hit a person that blocks it
         p->hit = true;
         }
+
+
+
+
     
+    if( p->hit && p->hitAnObject && ! p->hitOtherPerson && ! p->hitSelf ) {
+        // hit an object
+        
+        // what if someone is standing behind it?
+        
+        // look at two cells above
+        for( int y= p->closestCellY + 1; 
+             y < p->closestCellY + 3 && ! p->hitOtherPerson; y++ ) {
+            
+            float clickOffsetY = ( clickDestY  - y ) * CELL_D + clickExtraY;
+        
+            // look one cell to left/right
+            for( int x= p->closestCellX - 1; 
+                 x < p->closestCellX + 2 && ! p->hitOtherPerson; x++ ) {
+
+                float clickOffsetX = ( clickDestX  - x ) * CELL_D + clickExtraX;
+
+                for( int i=gameObjects.size()-1; 
+                     i>=0 && ! p->hitOtherPerson; i-- ) {
+        
+                    LiveObject *o = gameObjects.getElement( i );
+                    
+                    if( o->outOfRange ) {
+                        // out of range, but this was their last known position
+                        // don't draw now
+                        continue;
+                        }
+                    
+                    if( o->heldByAdultID != -1 ) {
+                        // held by someone else, don't draw now
+                        continue;
+                        }
+                    
+                    if( o->heldByDropOffset.x != 0 ||
+                        o->heldByDropOffset.y != 0 ) {
+                        // recently dropped baby, skip
+                        continue;
+                        }
+                
+                    if( o == ourLiveObject ) {
+                        // ignore clicks on self behind tree
+                        continue;
+                        }
+                    
+                    
+                    int oX = o->xd;
+                    int oY = o->yd;
+                
+                    if( o->currentSpeed != 0 && o->pathToDest != NULL ) {
+                        if( o->onFinalPathStep ) {
+                            oX = o->pathToDest[ o->pathLength - 1 ].x;
+                            oY = o->pathToDest[ o->pathLength - 1 ].y;
+                            }
+                        else {
+                            oX = o->pathToDest[ o->currentPathStep ].x;
+                            oY = o->pathToDest[ o->currentPathStep ].y;
+                            }
+                        }
+            
+                    
+                    if( oY == y && oX == x ) {
+                        // here!
+                        ObjectRecord *obj = getObject( o->displayID );
+                    
+                        int sp, cl, sl;
+                        
+                        double dist = getClosestObjectPart( 
+                            obj,
+                            &( o->clothing ),
+                            NULL,
+                            o->clothingContained,
+                            false,
+                            computeCurrentAge( o ),
+                            -1,
+                            o->holdingFlip,
+                            clickOffsetX,
+                            clickOffsetY,
+                            &sp, &cl, &sl );
+                    
+                        if( dist < minDistThatHits ) {
+                            p->hit = true;
+                            p->closestCellX = x;
+                            p->closestCellY = y;
+                            
+                            p->hitAnObject = false;
+                            p->hitOtherPerson = true;
+                            p->hitOtherPersonID = o->id;
+                            
+                            if( cl != -1 ) {
+                                p->hitClothingIndex = cl;
+                                p->hitSlotIndex = sl;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     
@@ -14555,7 +15850,11 @@ void LivingLifePage::pointerDown( float inX, float inY ) {
         
             LiveObject *o = gameObjects.getElement( i );
             
-            if( o->id != ourID ) {
+            if( o->id != ourID &&
+                o->heldByAdultID == -1 ) {
+                
+                // can't kill by clicking on ghost-location of held baby
+
                 if( distance( targetPos, o->currentPos ) < 1 ) {
                     // clicked on someone
                     
@@ -14642,6 +15941,43 @@ void LivingLifePage::pointerDown( float inX, float inY ) {
         }
     
 
+    char tryingToHeal = false;
+    
+
+    if( ourLiveObject->holdingID >= 0 &&
+        p.hitOtherPerson &&
+        getLiveObject( p.hitOtherPersonID )->dying ) {
+        
+        LiveObject *targetPlayer = getLiveObject( p.hitOtherPersonID );
+        
+        if( targetPlayer->holdingID > 0 ) {
+            
+            TransRecord *r = getTrans( ourLiveObject->holdingID,
+                                       targetPlayer->holdingID );
+            
+            if( r != NULL ) {
+                // a transition applies between what we're holding and their
+                // wound
+                tryingToHeal = true;
+                }
+            }
+        }
+    
+    
+    char canClickOnOtherForNonKill = false;
+    
+    if( tryingToHeal ) {
+        canClickOnOtherForNonKill = true;
+        }
+    
+    if( ourLiveObject->holdingID > 0 &&
+        getObject( ourLiveObject->holdingID )->deadlyDistance == 0 &&
+        ( getObject( ourLiveObject->holdingID )->clothing != 'n' ||
+          getObject( ourLiveObject->holdingID )->foodValue > 0 ) ) {
+        canClickOnOtherForNonKill = true;
+        }
+    
+
     
     // true if we're too far away to use on baby BUT we should execute
     // UBABY once we get to destination
@@ -14655,10 +15991,7 @@ void LivingLifePage::pointerDown( float inX, float inY ) {
         p.hitOtherPerson &&
         ! modClick && 
         destID == 0 &&
-        ourLiveObject->holdingID > 0 &&
-        getObject( ourLiveObject->holdingID )->deadlyDistance == 0 &&
-        ( getObject( ourLiveObject->holdingID )->clothing != 'n' ||
-          getObject( ourLiveObject->holdingID )->foodValue > 0 ) ) {
+        canClickOnOtherForNonKill ) {
 
 
         doublePair targetPos = { (double)clickDestX, (double)clickDestY };
@@ -15303,6 +16636,14 @@ void LivingLifePage::keyDown( unsigned char inASCII ) {
 
     
     switch( inASCII ) {
+        case 'S':
+            if( savingSpeechEnabled && 
+                ! mSayField.isFocused() ) {
+                savingSpeechColor = true;
+                savingSpeechMask = false;
+                savingSpeech = true;
+                }
+            break;
         /*
         case 'b':
             blackBorder = true;
@@ -15390,6 +16731,13 @@ void LivingLifePage::keyDown( unsigned char inASCII ) {
                     }
                 }
             break;
+        case '/':
+            if( ! mSayField.isFocused() ) {
+                // start typing a filter
+                mSayField.setText( "/" );
+                mSayField.focus();
+                }
+            break;
         case 13:  // enter
             // speak
             if( ! mSayField.isFocused() ) {
@@ -15401,6 +16749,47 @@ void LivingLifePage::keyDown( unsigned char inASCII ) {
                 char *typedText = mSayField.getText();
                 
                 if( strcmp( typedText, "" ) == 0 ) {
+                    mSayField.unfocus();
+                    }
+                else if( strlen( typedText ) > 0 &&
+                         typedText[0] == '/' ) {
+                    
+                    // a command, don't send to server
+                    
+                    const char *filterCommand = "/";
+                    
+                    if( strstr( typedText, filterCommand ) == typedText ) {
+                        // starts with filter command
+                        
+                        char *filterString = 
+                            &( typedText[ strlen( filterCommand ) ] );
+                        
+                        
+                        if( mHintFilterString != NULL ) {
+                            delete [] mHintFilterString;
+                            mHintFilterString = NULL;
+                            }
+                        
+                        char *trimmedFilterString = 
+                            trimWhitespace( filterString );
+
+                        int filterStringLen = strlen( trimmedFilterString );
+
+                        if( filterStringLen > 0 ) {
+                            // not blank
+                            mHintFilterString = 
+                                stringDuplicate( trimmedFilterString );
+                            }
+
+                        delete [] trimmedFilterString;
+                        
+                        mForceHintRefresh = true;
+                        mNextHintIndex = 0;
+                        }
+
+                    mSentChatPhrases.push_back( stringDuplicate( typedText ) );
+                    
+                    mSayField.setText( "" );
                     mSayField.unfocus();
                     }
                 else {
