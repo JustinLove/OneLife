@@ -45,6 +45,7 @@
 #include "serverCalls.h"
 #include "failureLog.h"
 #include "names.h"
+#include "curses.h"
 #include "lineageLimit.h"
 
 
@@ -133,6 +134,7 @@ static int familySpan = 2;
 // phrases that trigger baby and family naming
 static SimpleVector<char*> nameGivingPhrases;
 static SimpleVector<char*> familyNameGivingPhrases;
+static SimpleVector<char*> cursingPhrases;
 
 static char *eveName = NULL;
 
@@ -185,6 +187,12 @@ typedef struct LiveObject {
         char *name;
 
         char *lastSay;
+
+        int curseLevel;
+        
+        int curseTokenCount;
+        char curseTokenUpdate;
+
 
         char isEve;        
 
@@ -830,6 +838,8 @@ void quitCleanup() {
     
     freeNames();
     
+    freeCurses();
+    
     freeLifeLog();
     
     freeFoodLog();
@@ -862,7 +872,8 @@ void quitCleanup() {
 
     nameGivingPhrases.deallocateStringElements();
     familyNameGivingPhrases.deallocateStringElements();
-    
+    cursingPhrases.deallocateStringElements();
+
     if( eveName != NULL ) {
         delete [] eveName;
         eveName = NULL;
@@ -2380,6 +2391,69 @@ char findDropSpot( int inX, int inY, int inSourceX, int inSourceY,
 
 
 
+
+GridPos findClosestEmptyMapSpot( int inX, int inY, int inMaxPointsToCheck,
+                                 char *outFound ) {
+    // square spiral, found here:
+
+    // https://stackoverflow.com/questions/3706219/
+    //      algorithm-for-iterating-over-an-outward-spiral-on-a-
+    //      discrete-2d-grid-from-the-or
+    //
+
+    int layer = 1;
+    int leg = 0;
+    int x = 0;
+    int y = 0;
+    
+    int pointsChecked = 0;
+    
+    while( pointsChecked < inMaxPointsToCheck ) {
+        if( isMapSpotEmpty( inX + x, inY + y, false ) ) {    
+            GridPos p = { inX + x, inY + y };
+            *outFound = true;
+            return p;
+            }
+        
+        pointsChecked++;
+        
+        switch( leg ) {
+            case 0: 
+                x++; 
+                if( x == layer ) {
+                    leg++;
+                    }
+                break;
+            case 1:
+                y++; 
+                if( y == layer ) {
+                    leg++;
+                    }
+                break;
+            case 2:
+                x--; 
+                if( -x == layer ) {
+                    leg++;
+                    }
+                break;
+            case 3:
+                y--; 
+                if( -y == layer ) { 
+                    leg = 0; 
+                    layer++;
+                    }   
+                break;
+            }
+        }
+    
+    *outFound = false;
+    GridPos p = { inX, inY };
+    return p;
+    }
+
+
+
+
 // drops an object held by a player at target x,y location
 // doesn't check for adjacency (so works for thrown drops too)
 // if target spot blocked, will search for empty spot to throw object into
@@ -3503,7 +3577,7 @@ void processLoggedInPlayer( Socket *inSock,
     else if( inTutorialNumber > 0 ) {
         
         int startX = maxPlacementX * 2;
-        int startY = tutorialCount * 100;
+        int startY = tutorialCount * 25;
 
         newObject.xs = startX;
         newObject.ys = startY;
@@ -3609,7 +3683,19 @@ void processLoggedInPlayer( Socket *inSock,
     
     newObject.name = NULL;
     newObject.lastSay = NULL;
+    newObject.curseLevel = 0;
+    
 
+    if( hasCurseToken( inEmail ) ) {
+        newObject.curseTokenCount = 1;
+        }
+    else {
+        newObject.curseTokenCount = 0;
+        }
+
+    newObject.curseTokenUpdate = true;
+
+    
     newObject.pathLength = 0;
     newObject.pathToDest = NULL;
     newObject.pathTruncated = 0;
@@ -4382,8 +4468,8 @@ static void sendMessageToPlayer( LiveObject *inPlayer,
     
 
 
-void readNameGivingPhrases( const char *inSettingsName, 
-                            SimpleVector<char*> *inList ) {
+void readPhrases( const char *inSettingsName, 
+                  SimpleVector<char*> *inList ) {
     char *cont = SettingsManager::getSettingContents( inSettingsName, "" );
     
     if( strcmp( cont, "" ) == 0 ) {
@@ -4434,7 +4520,9 @@ char *isFamilyNamingSay( char *inSaidString ) {
     return isNamingSay( inSaidString, &familyNameGivingPhrases );
     }
 
-
+char *isCurseNamingSay( char *inSaidString ) {
+    return isNamingSay( inSaidString, &cursingPhrases );
+    }
 
 
 int readIntFromFile( const char *inFileName, int inDefaultValue ) {
@@ -4852,8 +4940,10 @@ int main() {
         SettingsManager::getIntSetting( "familySpan", 2 );
     
     
-    readNameGivingPhrases( "babyNamingPhrases", &nameGivingPhrases );
-    readNameGivingPhrases( "familyNamingPhrases", &familyNameGivingPhrases );
+    readPhrases( "babyNamingPhrases", &nameGivingPhrases );
+    readPhrases( "familyNamingPhrases", &familyNameGivingPhrases );
+
+    readPhrases( "cursingPhrases", &cursingPhrases );
     
     eveName = 
         SettingsManager::getStringSetting( "eveName", "EVE" );
@@ -4870,6 +4960,9 @@ int main() {
 #endif
 
     initNames();
+
+    initCurses();
+    
 
     initLifeLog();
     initBackup();
@@ -4942,7 +5035,37 @@ int main() {
     while( !quit ) {
         
         int shutdownMode = SettingsManager::getIntSetting( "shutdownMode", 0 );
+        int forceShutdownMode = 
+            SettingsManager::getIntSetting( "forceShutdownMode", 0 );
         
+        if( forceShutdownMode ) {
+            shutdownMode = 1;
+        
+            const char *shutdownMessage = "SD\n#";
+            int messageLength = strlen( shutdownMessage );
+            
+            // send everyone who's still alive a shutdown message
+            for( int i=0; i<players.size(); i++ ) {
+                LiveObject *nextPlayer = players.getElement( i );
+                
+                if( nextPlayer->error ) {
+                    continue;
+                    }
+
+                nextPlayer->sock->send( 
+                    (unsigned char*)shutdownMessage, 
+                    messageLength,
+                    false, false );
+                
+                // don't worry about num sent
+                // it's the last message to this client anyway
+                nextPlayer->error = true;
+                nextPlayer->errorCauseString =
+                    "Forced server shutdown";
+                }
+            }
+        
+
         
         apocalypseStep();
         monumentStep();
@@ -5592,6 +5715,8 @@ int main() {
         SimpleVector<int> playerIndicesToSendUpdatesAbout;
         
         SimpleVector<int> playerIndicesToSendLineageAbout;
+
+        SimpleVector<int> playerIndicesToSendCursesAbout;
 
         SimpleVector<int> playerIndicesToSendNamesAbout;
 
@@ -6390,6 +6515,28 @@ int main() {
                                 }
                             }
                         
+                        char isCurse = false;
+
+                        char *cursedName = isCurseNamingSay( m.saidText );
+                        
+                        if( cursedName != NULL && 
+                            strcmp( cursedName, "" ) != 0 ) {
+                            
+                            isCurse = cursePlayer( nextPlayer->email,
+                                                   cursedName );
+                            
+                            if( isCurse ) {
+                                
+                                if( hasCurseToken( nextPlayer->email ) ) {
+                                    nextPlayer->curseTokenCount = 1;
+                                    }
+                                else {
+                                    nextPlayer->curseTokenCount = 0;
+                                    }
+                                nextPlayer->curseTokenUpdate = true;
+                                }
+                            }
+                        
 
                         
                         if( nextPlayer->isEve && nextPlayer->name == NULL ) {
@@ -6401,6 +6548,7 @@ int main() {
                                                                 eveName, 
                                                                 close );
                                 logName( nextPlayer->id,
+                                         nextPlayer->email,
                                          nextPlayer->name );
                                 playerIndicesToSendNamesAbout.push_back( i );
                                 }
@@ -6436,6 +6584,7 @@ int main() {
                                                                close, 
                                                                lastName );
                                     logName( babyO->id,
+                                             babyO->email,
                                              babyO->name );
                                     
                                     playerIndicesToSendNamesAbout.push_back( 
@@ -6451,8 +6600,14 @@ int main() {
                             }
                         nextPlayer->lastSay = stringDuplicate( m.saidText );
                         
+                        int curseFlag = 0;
+                        if( isCurse ) {
+                            curseFlag = 1;
+                            }
                         
-                        char *line = autoSprintf( "%d %s\n", nextPlayer->id,
+                        char *line = autoSprintf( "%d/%d %s\n", 
+                                                  nextPlayer->id,
+                                                  curseFlag,
                                                   m.saidText );
                         
                         newSpeech.appendElementString( line );
@@ -6469,8 +6624,10 @@ int main() {
                             LiveObject *holdingPlayer = 
                                 getLiveObject( nextPlayer->heldByOtherID );
                 
-                            p.x = holdingPlayer->xd;
-                            p.y = holdingPlayer->yd;
+                            if( holdingPlayer != NULL ) {
+                                p.x = holdingPlayer->xd;
+                                p.y = holdingPlayer->yd;
+                                }
                             }
 
 
@@ -6583,12 +6740,12 @@ int main() {
                                                  Time::getCurrentTime();
                                              
                                              double staggerTimeLeft = 
-                                                 nextPlayer->dyingETA - 
+                                                 hitPlayer->dyingETA - 
                                                  currentTime;
                         
                                              if( staggerTimeLeft > 0 ) {
                                                  staggerTimeLeft /= 2;
-                                                 nextPlayer->dyingETA = 
+                                                 hitPlayer->dyingETA = 
                                                      currentTime + 
                                                      staggerTimeLeft;
                                                  }
@@ -8428,6 +8585,13 @@ int main() {
                 playerIndicesToSendUpdatesAbout.push_back( i );
                 playerIndicesToSendLineageAbout.push_back( i );
                 
+                
+                nextPlayer->curseLevel = getCurseLevel( nextPlayer->email );
+                
+                if( nextPlayer->curseLevel > 0 ) {
+                    playerIndicesToSendCursesAbout.push_back( i );
+                    }
+
                 nextPlayer->isNew = false;
                 
                 // force this PU to be sent to everyone
@@ -8631,6 +8795,25 @@ int main() {
                         
                         n++;
                         oldObject = getMapObject( dropPos.x, dropPos.y );
+                        }
+                    }
+
+
+                if( ! isMapSpotEmpty( dropPos.x, dropPos.y, false ) ) {
+                    
+                    // failed to find an empty spot, or a containable object
+                    // at center or four neighbors
+                    
+                    // search outward in spiral of up to 100 points
+                    // look for some empty spot
+                    
+                    char foundEmpty = false;
+                    
+                    GridPos newDropPos = findClosestEmptyMapSpot(
+                        dropPos.x, dropPos.y, 100, &foundEmpty );
+                    
+                    if( foundEmpty ) {
+                        dropPos = newDropPos;
                         }
                     }
 
@@ -9914,6 +10097,29 @@ int main() {
         stepMap( &mapChanges, &mapChangesPos );
         
 
+        // figure out who has recieved a new curse token
+        // they are sent a message about it below (CX)
+        SimpleVector<char*> newCurseTokenEmails;
+        getNewCurseTokenHolders( &newCurseTokenEmails );
+        
+        for( int i=0; i<newCurseTokenEmails.size(); i++ ) {
+            char *email = newCurseTokenEmails.getElementDirect( i );
+            
+            for( int j=0; j<numLive; j++ ) {
+                LiveObject *nextPlayer = players.getElement(i);
+                
+                if( strcmp( nextPlayer->email, email ) == 0 ) {
+                    
+                    nextPlayer->curseTokenCount = 1;
+                    nextPlayer->curseTokenUpdate = true;
+                    break;
+                    }
+                }
+            
+            delete [] email;
+            }
+        
+
         
 
 
@@ -9993,6 +10199,55 @@ int main() {
                         lineageMessageLength, &lineageMessageLength );
                     
                     delete [] lineageMessageText;
+                    }
+                }
+            }
+
+
+
+
+        unsigned char *cursesMessage = NULL;
+        int cursesMessageLength = 0;
+        
+        if( playerIndicesToSendCursesAbout.size() > 0 ) {
+            SimpleVector<char> curseWorking;
+            curseWorking.appendElementString( "CU\n" );
+            
+            int numAdded = 0;
+            for( int i=0; i<playerIndicesToSendCursesAbout.size(); i++ ) {
+                LiveObject *nextPlayer = players.getElement( 
+                    playerIndicesToSendCursesAbout.getElementDirect( i ) );
+
+                if( nextPlayer->error ) {
+                    continue;
+                    }
+
+                char *line = autoSprintf( "%d %d\n", nextPlayer->id,
+                                         nextPlayer->curseLevel );
+                
+                curseWorking.appendElementString( line );
+                delete [] line;
+                numAdded++;
+                }
+            
+            curseWorking.push_back( '#' );
+            
+            if( numAdded > 0 ) {
+
+                char *cursesMessageText = curseWorking.getElementString();
+                
+                cursesMessageLength = strlen( cursesMessageText );
+                
+                if( cursesMessageLength < maxUncompressedSize ) {
+                    cursesMessage = (unsigned char*)cursesMessageText;
+                    }
+                else {
+                    // compress for all players once here
+                    cursesMessage = makeCompressedMessage( 
+                        cursesMessageText, 
+                        cursesMessageLength, &cursesMessageLength );
+                    
+                    delete [] cursesMessageText;
                     }
                 }
             }
@@ -10313,6 +10568,49 @@ int main() {
 
 
 
+                // send cursed status for all living cursed
+                
+                SimpleVector<char> cursesWorking;
+                cursesWorking.appendElementString( "CU\n" );
+
+                numAdded = 0;
+                
+                for( int i=0; i<numPlayers; i++ ) {
+                
+                    LiveObject *o = players.getElement( i );
+                
+                    if( o->error ) {
+                        continue;
+                        }
+
+                    int level = o->curseLevel;
+                    
+                    if( level == 0 ) {
+                        continue;
+                        }
+                    
+
+                    char *line = autoSprintf( "%d %d\n", o->id, level );
+                    cursesWorking.appendElementString( line );
+                    delete [] line;
+                    
+                    numAdded++;
+                    }
+                
+                cursesWorking.push_back( '#' );
+            
+                if( numAdded > 0 ) {
+                    char *cursesMessage = cursesWorking.getElementString();
+
+
+                    sendMessageToPlayer( nextPlayer, cursesMessage, 
+                                         strlen( cursesMessage ) );
+                
+                    delete [] cursesMessage;
+                    }
+
+
+
 
                 // send dying for everyone who is dying
                 
@@ -10438,8 +10736,10 @@ int main() {
                     LiveObject *holdingPlayer = 
                         getLiveObject( nextPlayer->heldByOtherID );
                 
-                    playerXD = holdingPlayer->xd;
-                    playerYD = holdingPlayer->yd;
+                    if( holdingPlayer != NULL ) {
+                        playerXD = holdingPlayer->xd;
+                        playerYD = holdingPlayer->yd;
+                        }
                     }
 
 
@@ -11114,6 +11414,24 @@ int main() {
                         }
                     }
 
+
+                // EVERYONE gets curse info for new babies
+                if( cursesMessage != NULL ) {
+                    int numSent = 
+                        nextPlayer->sock->send( 
+                            cursesMessage, 
+                            cursesMessageLength, 
+                            false, false );
+                    
+                    if( numSent != cursesMessageLength ) {
+                        setDeathReason( nextPlayer, "disconnected" );
+
+                        nextPlayer->error = true;
+                        nextPlayer->errorCauseString =
+                            "Socket write failed";
+                        }
+                    }
+
                 // EVERYONE gets newly-given names
                 if( namesMessage != NULL ) {
                     int numSent = 
@@ -11171,19 +11489,49 @@ int main() {
                              messageLength,
                              false, false );
 
-                     if( numSent != messageLength ) {
-                         setDeathReason( nextPlayer, "disconnected" );
+                    if( numSent != messageLength ) {
+                        setDeathReason( nextPlayer, "disconnected" );
+                        
+                        nextPlayer->error = true;
+                        nextPlayer->errorCauseString =
+                            "Socket write failed";
+                        }
+                    
+                    delete [] foodMessage;
+                    
+                    nextPlayer->foodUpdate = false;
+                    nextPlayer->lastAteID = 0;
+                    nextPlayer->lastAteFillMax = 0;
+                    }
 
-                         nextPlayer->error = true;
-                         nextPlayer->errorCauseString =
-                             "Socket write failed";
-                         }
+
+                if( nextPlayer->curseTokenUpdate ) {
+                    // send this player a curse token status change
+                    
+                    char *tokenMessage = autoSprintf( 
+                        "CX\n"
+                        "%d#",
+                        nextPlayer->curseTokenCount );
                      
-                     delete [] foodMessage;
-                     
-                     nextPlayer->foodUpdate = false;
-                     nextPlayer->lastAteID = 0;
-                     nextPlayer->lastAteFillMax = 0;
+                    int messageLength = strlen( tokenMessage );
+                    
+                    int numSent = 
+                         nextPlayer->sock->send( 
+                             (unsigned char*)tokenMessage, 
+                             messageLength,
+                             false, false );
+
+                    if( numSent != messageLength ) {
+                        setDeathReason( nextPlayer, "disconnected" );
+                        
+                        nextPlayer->error = true;
+                        nextPlayer->errorCauseString =
+                            "Socket write failed";
+                        }
+                    
+                    delete [] tokenMessage;
+                    
+                    nextPlayer->curseTokenUpdate = false;
                     }
                 }
             }
@@ -11241,6 +11589,9 @@ int main() {
             }
         if( lineageMessage != NULL ) {
             delete [] lineageMessage;
+            }
+        if( cursesMessage != NULL ) {
+            delete [] cursesMessage;
             }
         if( namesMessage != NULL ) {
             delete [] namesMessage;

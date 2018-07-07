@@ -136,6 +136,12 @@ GRAVE (GV)
 
 GRAVE_MOVE (GM)
 
+CURSED (CU)
+
+CURSE_TOKEN_CHANGE (CX)
+
+FORCED_SHUTDOWN (SD)
+
 
 
 Client can expect to receive these at any time, and in any order.
@@ -345,14 +351,26 @@ they have moved out of range.
 
 
 PS
-p_id text
-p_id text
-p_id text
+p_id/isCurse text
+p_id/isCurse text
+p_id/isCurse text
 ...
-p_id text
+p_id/isCurse text
 #
 
+isCurse is 0 if not a successful curse, or 1 if successful.
+
 Text that each player says must not contain # or newline.
+
+Example:
+
+PS
+1432/0 HELLO THERE
+1501/1 CURSE JOHN SMITH
+1448/0 HELP ME
+#
+
+
 
 
 
@@ -526,6 +544,36 @@ xs ys xd yd
 
 
 Grave at xs,ys moved to xd,yd.
+
+
+
+CU
+p_id level
+p_id level
+...
+p_id level
+#
+
+
+List of player ids that are cursed, and their curse level
+
+
+
+CX
+curse_token_count#
+
+Tells player about how many curse tokens they have
+
+
+
+
+
+SD
+#
+
+Indicates that the server is undergoing a forced shutdown.  Gives client a
+chance to hear about this and close connection before connection is
+force-closed by server.
 
 
 

@@ -60,6 +60,10 @@ typedef struct LiveObject {
 
         char *relationName;
         
+        int curseLevel;
+        
+        int curseTokenCount;
+        
 
         // roll back age temporarily to make baby revert to crying
         // when baby speaks
@@ -78,6 +82,12 @@ typedef struct LiveObject {
         // by an adult
         int heldByAdultID;
         
+        // -1 if not set
+        // otherwise, ID of adult that is holding us according to pending
+        // messages, but not according to already-played messages
+        int heldByAdultPendingID;
+        
+
         // usually 0, unless we're being held by an adult
         // and just got put down
         // then we slide back into position
@@ -256,6 +266,8 @@ typedef struct LiveObject {
         // wall clock time when speech should start fading
         double speechFadeETATime;
 
+        char speechIsSuccessfulCurse;
+        
 
         char shouldDrawPathMarks;
         double pathMarkFade;
@@ -547,6 +559,9 @@ class LivingLifePage : public GamePage {
         
         HomeArrow mHomeArrowStates[ NUM_HOME_ARROWS ];
         
+        SimpleVector<char*> mPreviousHomeDistStrings;
+        SimpleVector<float> mPreviousHomeDistFades;
+        
 
         // offset from current view center
         doublePair mNotePaperHideOffset;
@@ -575,6 +590,7 @@ class LivingLifePage : public GamePage {
         char mPulseHungerSound;
 
         SoundSpriteHandle mTutorialSound;
+        SoundSpriteHandle mCurseSound;
 
         
         SpriteHandle mHungerSlipSprites[3];

@@ -3,6 +3,92 @@ This file only list changes to game code.  Changes to content can be found here:
 http://onehouronelife.com/updateLog.php
 
 
+Version 122    2018-July-6
+
+--Back to updating hard-coded version number with every client update.  Not
+  sure what I was thinking there.  Saw a version mismatched and found the
+  wrong reason for it.
+
+
+
+
+Version 121    2018-July-6
+
+--Fixed newly introduced bug in sound volumes for positioned sound source when
+  far enough away that volume equation becomes negative (was causing all kinds
+  of sound glitches).
+
+--Responds to new SD (FORCED_SHUTDOWN) message from server.
+
+--Fixed bug that prevented body clothing from being removed.
+  Thanks Midget Maker.
+
+
+
+Server Fixes
+
+--Added new forcedShutdown trigger for server, to cleanly shut down server,
+  and send notice to connected clients, without waiting for everyone to live
+  out their lives.  Need this for emergencies sometimes, and sending SIGSTP to
+  the server, unlike ctrl-z, wasn't working.
+
+
+
+
+Version 119    2018-July-6
+
+--Fixed glitch when picked up and put down by an adult who still has messages
+  pending (thanks Jacek T).  Also handled case where two adults are passing
+  baby back and forth.  It's still a little jumpy if the baby's client has
+  delay, but at least the end result is correct now.
+
+--Fixed bug where player can still try to click on baby's old ground location
+  while the baby is held by someone else.
+
+--NONE RELEVANT if the filter matches, but no transitions are relevant, but
+  NO MATCH if the filter simply doesn't match anything.
+
+--Fixed so that you can't click on arm by accident when trying to click on
+  tunic, bottom, or backpack clothing.  Arm should be unclickable if you are
+  wearing clothes.
+
+--Curse system.  Everyone starts with one curse token and zero curse points. 
+  CURSE JANE SMITH curses Jane Smith, giving her one curse point, and consuming
+  the sayer's curse token.  Sayer gets new curse token after two hours of play.
+  One curse point removed after each hour of play.  A baby with ten or more
+  curse points is born marked.  A marked person cannot be cursed further until
+  they are born unmarked later.  Curse token displayed near temp meter.
+
+--Fixed several bugs in UI paper slip animations and clearing when not
+  operating at full frame rate.
+
+--Home arrow shows tile distance if target is more than 1000 tiles away.
+  Useful for judging whether distant monuments are worth the trip.
+
+
+
+
+Server Fixes
+
+--Fixed typo in computation of stagger time for player who is wounded multiple
+  times.  Fixes #41.  Thanks UncleGus.
+
+--Added YOU'RE and YOURE and I'M and IM as naming phrases, after seeing that in
+  the Life of Bumpy video.
+
+--Fixed so that grave doesn't disappear if you are standing on a cross of
+  permanent objects when you die.  Server now searches in a spiral of 100
+  tiles around your current location to find an empty spot for your grave.
+
+--Max players back down to 140 from 200, so load balancing kicks in at 70
+  players instead of at 100 players.
+
+--Fixed some crashes when baby marked as held by player that is gone.
+
+--Fixed order of naming phrases so that prefixes of other phrases come last.
+
+
+
 
 Version 118    2018-June-29
 
