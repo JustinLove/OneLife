@@ -14349,7 +14349,7 @@ void LivingLifePage::step() {
                     //trailColor.g = randSource.getRandomBoundedDouble( 0, .5 );
                     //trailColor.b = randSource.getRandomBoundedDouble( 0, .5 );
                     
-                    if( o->id ) {
+                    if( o->id == ourID ) {
                         edgeAutoRun = false;
                         }
 
