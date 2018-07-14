@@ -72,6 +72,8 @@ extern char *serverIP;
 extern int serverPort;
 
 extern char *userEmail;
+extern char *userTwinCode;
+extern int userTwinCount;
 
 
 extern float musicLoudness;
@@ -1072,8 +1074,13 @@ static double measurePathLength( LiveObject *inObject,
 
 
 
-
+// youngest last
 SimpleVector<LiveObject> gameObjects;
+
+// for determining our ID when we're not youngest on the server
+// (so we're not last in the list after receiving the first PU message)
+int recentInsertedGameObjectIndex = -1;
+
 
 
 static LiveObject *getGameObject( int inID ) {
@@ -3841,8 +3848,34 @@ void LivingLifePage::draw( doublePair inViewCenter,
         
         setDrawColor( 1, 1, 1, 1 );
         doublePair pos = { 0, 0 };
-        drawMessage( "waitingBirth", pos );
+        
+        if( userTwinCode == NULL ) {
+            drawMessage( "waitingBirth", pos );
+            }
+        else {
+            const char *sizeString = translate( "twins" );
+            
+            if( userTwinCount == 3 ) {
+                sizeString = translate( "triplets" );
+                }
+            else if( userTwinCount == 4 ) {
+                sizeString = translate( "quadruplets" );
+                }
+            char *message = autoSprintf( translate( "waitingBirthFriends" ),
+                                         sizeString );
 
+            drawMessage( message, pos );
+            delete [] message;
+
+            if( !mStartedLoadingFirstObjectSet ) {
+                doublePair tipPos = pos;
+                tipPos.y -= 200;
+                
+                drawMessage( translate( "cancelWaitingFriends" ), tipPos );
+                }
+            }
+        
+        
         if( mStartedLoadingFirstObjectSet ) {
             
             pos.y = -100;
@@ -9160,22 +9193,35 @@ void LivingLifePage::step() {
             // So pad the email with up to 80 space characters
             // Thus, the login message is always this same length
             
+            char *twinExtra;
+            
+            if( userTwinCode != NULL ) {
+                char *hash = computeSHA1Digest( userTwinCode );
+                twinExtra = autoSprintf( " %s %d", hash, userTwinCount );
+                delete [] hash;
+                }
+            else {
+                twinExtra = stringDuplicate( "" );
+                }
+                                         
+
             char *outMessage;
             if( strlen( userEmail ) <= 80 ) {    
-                outMessage = autoSprintf( "LOGIN %-80s %s %s %d#",
+                outMessage = autoSprintf( "LOGIN %-80s %s %s %d%s#",
                                           userEmail, pwHash, keyHash,
-                                          mTutorialNumber );
+                                          mTutorialNumber, twinExtra );
                 }
             else {
                 // their email is too long for this trick
                 // don't cut it off.
                 // but note that the playback will fail if email.ini
                 // doesn't match on the playback machine
-                outMessage = autoSprintf( "LOGIN %s %s %s %d#",
+                outMessage = autoSprintf( "LOGIN %s %s %s %d%s#",
                                           userEmail, pwHash, keyHash,
-                                          mTutorialNumber );
+                                          mTutorialNumber, twinExtra );
                 }
             
+            delete [] twinExtra;
             delete [] pwHash;
             delete [] keyHash;
 
@@ -9803,6 +9849,7 @@ void LivingLifePage::step() {
                 delete [] lines[0];
                 }
             
+            char idBuffer[500];
             
             for( int i=1; i<numLines; i++ ) {
                 
@@ -9810,8 +9857,7 @@ void LivingLifePage::step() {
                 int oldX, oldY;
                 float speed = 0;
                                 
-                char *idBuffer = new char[500];
-
+                
                 int numRead = sscanf( lines[i], "%d %d %d %499s %d %d %d %f",
                                       &x, &y, &floorID, 
                                       idBuffer, &responsiblePlayerID,
@@ -10525,8 +10571,6 @@ void LivingLifePage::step() {
                         }
                     }
                 
-                delete [] idBuffer;
-                
                 delete [] lines[i];
                 }
             
@@ -10879,7 +10923,41 @@ void LivingLifePage::step() {
                             LiveObject *heldBaby = getLiveObject( heldBabyID );
                             
                             if( heldBaby != NULL ) {
+
+                                // clear up held status on baby if old
+                                // holding adult is out of range
+                                // (we're not getting updates about them
+                                //  anymore).
+                               
+                                if( heldBaby->heldByAdultID > 0 && 
+                                    heldBaby->heldByAdultID != existing->id ) {
+                                    
+                                    LiveObject *oldHolder =
+                                        getLiveObject( 
+                                            heldBaby->heldByAdultID );
+                                    
+                                    if( oldHolder != NULL &&
+                                        oldHolder->outOfRange ) {
+                                        heldBaby->heldByAdultID = -1;
+                                        }
+                                    }
+
+                                if( heldBaby->heldByAdultPendingID > 0 && 
+                                    heldBaby->heldByAdultPendingID != 
+                                    existing->id ) {
+                                    
+                                    LiveObject *oldPendingHolder =
+                                        getLiveObject( 
+                                            heldBaby->heldByAdultPendingID );
+                                    
+                                    if( oldPendingHolder != NULL &&
+                                        oldPendingHolder->outOfRange ) {
+                                        heldBaby->heldByAdultPendingID = -1;
+                                        }
+                                    }
+
                                 
+                                // now handle changes to held status
                                 if( heldBaby->heldByAdultID == existing->id ) {
                                     // baby already knows it's held
                                     }
@@ -12077,6 +12155,8 @@ void LivingLifePage::step() {
                         o.currentPos.x = o.xd;
                         o.currentPos.y = o.yd;
 
+                        o.destTruncated = false;
+
                         o.heldPosOverride = false;
                         o.heldPosOverrideAlmostOver = false;
                         o.heldObjectPos = o.currentPos;
@@ -12103,7 +12183,26 @@ void LivingLifePage::step() {
                                            o.currentPos.x,
                                            o.currentPos.y ) );
                             }
-                        gameObjects.push_back( o );
+                        
+                        // insert in age order, youngest last
+                        double newAge = computeCurrentAge( &o );
+                        char inserted = false;
+                        for( int e=0; e<gameObjects.size(); e++ ) {
+                            if( computeCurrentAge( gameObjects.getElement( e ) )
+                                < newAge ) {
+                                // found first younger, insert in front of it
+                                gameObjects.push_middle( o, e );
+                                recentInsertedGameObjectIndex = e;
+                                inserted = true;
+                                break;
+                                }
+                            }
+                        if( ! inserted ) {
+                            // they're all older than us
+                            gameObjects.push_back( o );
+                            recentInsertedGameObjectIndex = 
+                                gameObjects.size() - 1;
+                            }
                         }
                     }
                 else if( o.id == ourID && 
@@ -12395,7 +12494,7 @@ void LivingLifePage::step() {
             if( ( mFirstServerMessagesReceived & 2 ) == 0 ) {
             
                 LiveObject *ourObject = 
-                    gameObjects.getElement( gameObjects.size() - 1 );
+                    gameObjects.getElement( recentInsertedGameObjectIndex );
                 
                 ourID = ourObject->id;
 
@@ -13414,6 +13513,13 @@ void LivingLifePage::step() {
                             LiveObject *existing = gameObjects.getElement(j);
                             
                             existing->outOfRange = true;
+                            
+                            if( existing->pendingReceivedMessages.size() > 0 ) {
+                                // don't let pending messages for out-of-range
+                                // players linger
+                                playPendingReceivedMessages( existing );
+                                }
+
                             break;
                             }
                         }
@@ -15229,23 +15335,26 @@ void LivingLifePage::checkForPointerHit( PointerHitRecord *inRecord,
                     }
                 
                 
-                int oX = o->xd;
-                int oY = o->yd;
+                double oX = o->xd;
+                double oY = o->yd;
                 
                 if( o->currentSpeed != 0 && o->pathToDest != NULL ) {
-                    if( o->onFinalPathStep ) {
-                        oX = o->pathToDest[ o->pathLength - 1 ].x;
-                        oY = o->pathToDest[ o->pathLength - 1 ].y;
-                        }
-                    else {
-                        oX = o->pathToDest[ o->currentPathStep ].x;
-                        oY = o->pathToDest[ o->currentPathStep ].y;
-                        }
+                    oX = o->currentPos.x;
+                    oY = o->currentPos.y;
                     }
                 
                 
-                if( oY == y && oX == x ) {
+                if( round( oX ) == x &&
+                    round( oY ) == y ) {
+                                        
                     // here!
+
+                    double personClickOffsetX = ( oX - x ) * CELL_D;
+                    double personClickOffsetY = ( oY - y ) * CELL_D;
+                    
+                    personClickOffsetX = clickOffsetX - personClickOffsetX;
+                    personClickOffsetY = clickOffsetY - personClickOffsetY;
+
                     ObjectRecord *obj = getObject( o->displayID );
                     
                     int sp, cl, sl;
@@ -15259,8 +15368,8 @@ void LivingLifePage::checkForPointerHit( PointerHitRecord *inRecord,
                         computeCurrentAge( o ),
                         -1,
                         o->holdingFlip,
-                        clickOffsetX,
-                        clickOffsetY,
+                        personClickOffsetX,
+                        personClickOffsetY,
                         &sp, &cl, &sl );
                     
                     if( dist < minDistThatHits ) {
@@ -16197,6 +16306,7 @@ void LivingLifePage::pointerDown( float inX, float inY ) {
     // if we're close enough to kill, we'll kill from where we're standing
     // and return
     char killLater = false;
+    int killLaterID = -1;
     
 
     if( destID == 0 &&
@@ -16242,11 +16352,24 @@ void LivingLifePage::pointerDown( float inX, float inY ) {
                             delete [] nextActionMessageToSend;
                             nextActionMessageToSend = NULL;
                             }
-            
-                        nextActionMessageToSend = 
-                            autoSprintf( "KILL %d %d#",
-                                         sendX( clickDestX ), 
-                                         sendY( clickDestY ) );
+                        
+                        if( p.hitOtherPerson ) {
+                            nextActionMessageToSend = 
+                                autoSprintf( "KILL %d %d %d#",
+                                             sendX( clickDestX ), 
+                                             sendY( clickDestY ),
+                                             p.hitOtherPersonID );
+                            printf( "KILL with direct-click target player "
+                                    "id=%d\n", p.hitOtherPersonID );
+                            }
+                        else {
+                            nextActionMessageToSend = 
+                                autoSprintf( "KILL %d %d#",
+                                             sendX( clickDestX ), 
+                                             sendY( clickDestY ) );
+                            printf( "KILL with target "
+                                    "player on closest tile, id=%d\n", o->id );
+                            }
                         
                         
                         playerActionTargetX = clickDestX;
@@ -16254,7 +16377,7 @@ void LivingLifePage::pointerDown( float inX, float inY ) {
                         
                         playerActionTargetNotAdjacent = true;
                         
-                        printf( "KILL with target player %d\n", o->id );
+                        
 
                         return;
                         }
@@ -16263,6 +16386,10 @@ void LivingLifePage::pointerDown( float inX, float inY ) {
                         // once we walk there, using standard path-to-adjacent
                         // code below
                         killLater = true;
+                        
+                        if( p.hitOtherPerson ) {
+                            killLaterID = p.hitOtherPersonID;
+                            }
                         
                         break;
                         }
@@ -16395,10 +16522,11 @@ void LivingLifePage::pointerDown( float inX, float inY ) {
                             }
             
                         nextActionMessageToSend = 
-                            autoSprintf( "UBABY %d %d %d#",
+                            autoSprintf( "UBABY %d %d %d %d#",
                                          sendX( clickDestX ), 
                                          sendY( clickDestY ), 
-                                         p.hitClothingIndex );
+                                         p.hitClothingIndex, 
+                                         p.hitOtherPersonID );
                         
                         
                         playerActionTargetX = clickDestX;
@@ -16406,7 +16534,8 @@ void LivingLifePage::pointerDown( float inX, float inY ) {
                         
                         playerActionTargetNotAdjacent = true;
                         
-                        printf( "UBABY with target player %d\n", o->id );
+                        printf( "UBABY with target player %d\n", 
+                                p.hitOtherPersonID );
 
                         return;
                         }
@@ -16433,6 +16562,7 @@ void LivingLifePage::pointerDown( float inX, float inY ) {
 
     if( destID == 0 &&
         p.hit &&
+        p.hitOtherPerson &&
         ! p.hitAnObject &&
         ! modClick && ourLiveObject->holdingID == 0 &&
         // only adults can pick up babies
@@ -16579,12 +16709,17 @@ void LivingLifePage::pointerDown( float inX, float inY ) {
             
             if( tryingToPickUpBaby ) {
                 action = "BABY";
+                if( p.hitOtherPerson ) {
+                    delete [] extra;
+                    extra = autoSprintf( " %d", p.hitOtherPersonID );
+                    }
                 send = true;
                 }
             else if( useOnBabyLater ) {
                 action = "UBABY";
                 delete [] extra;
-                extra = autoSprintf( " %d", p.hitClothingIndex );
+                extra = autoSprintf( " %d %d", p.hitClothingIndex,
+                                     p.hitOtherPersonID );
                 send = true;
                 }
             else if( modClick && destID == 0 && 
@@ -16599,6 +16734,11 @@ void LivingLifePage::pointerDown( float inX, float inY ) {
                 
                 if( killLater ) {
                     action = "KILL";
+
+                    if( killLaterID != -1 ) {
+                        delete [] extra;
+                        extra = autoSprintf( " %d", killLaterID );
+                        }
                     }
                 else {
                     // check for other special case
@@ -17021,6 +17161,16 @@ void LivingLifePage::keyDown( unsigned char inASCII ) {
                 savingSpeechColor = true;
                 savingSpeechMask = false;
                 savingSpeech = true;
+                }
+            break;
+        case 'x':
+            if( userTwinCode != NULL &&
+                ! mStartedLoadingFirstObjectSet ) {
+                
+                closeSocket( mServerSocket );
+                mServerSocket = -1;
+                
+                setSignal( "twinCancel" );
                 }
             break;
         /*

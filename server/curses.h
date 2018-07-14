@@ -25,7 +25,7 @@ void getNewCurseTokenHolders( SimpleVector<char*> *inEmailList );
 
 
 // returns true of curse effective
-char cursePlayer( char *inGiverEmail, char *inReceiverName );
+char cursePlayer( int inGiverID, char *inGiverEmail, char *inReceiverName );
 
 void logPlayerNameForCurses( char *inPlayerEmail, char *inPlayerName );
 
@@ -33,3 +33,9 @@ void logPlayerNameForCurses( char *inPlayerEmail, char *inPlayerName );
 
 // returns curse level, or 0 if not cursed
 int getCurseLevel( char *inPlayerEmail );
+
+
+
+// true if name already exists in curse system
+char isNameDuplicateForCurses( char *inPlayerName );
+

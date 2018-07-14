@@ -3,6 +3,91 @@ This file only list changes to game code.  Changes to content can be found here:
 http://onehouronelife.com/updateLog.php
 
 
+Version 125    2018-July-13
+
+--Added client source code version match check in platform build scripts
+  (to prevent problem that happened during release of v123).
+
+--Fixed invisible babies, bouncing forever, duplicated objects, and all sorts
+  of other problems caused when a player carries a baby out of range (so that
+  updates aren't received about them anymore), and then a different player
+  carries the same baby back into range.  Messages about the held baby were
+  being queued by the client, since the client was still waiting for the first
+  player to drop the baby, but the drop happened out of range.
+
+--Fixed so that mouse-over works correctly for moving people (you used to have
+  to mouse over the next tile on their path, but now you can mouse over their
+  exact position mid-move).  This also makes it much easier to kill a moving
+  player that is crossing over thing on the ground.
+
+--Added player ID parameter to KILL, BABY, and UBABY client messages to specify
+  a specific player that the client clicked on (no more killing a bystander who
+  was standing in the same tile as the person you actually clicked on, and no
+  more grabbing the wrong baby).
+
+--Players have always been drawn in age order (youngest in front), so now
+  mouse-over works the same way.  This worked by accident most of the time,
+  because most people enter the game in age order, but was broken for an Eve
+  that entered later than a baby (she would capture mouse clicks of the baby
+  she was standing visually behind).
+
+--TEMP LOGIN was a confusing feature.  Added CLEAR ACCOUNT button instead.
+
+--Twin system.  Players can share a code friends and get born as identical
+  twins, triplets, or quadruplets.
+
+
+
+
+
+Server Fixes
+
+--Server logs curses cast and curse score changes.  These logs are backed up
+  along with lifeLogs.
+
+--Web export of curse logs along with life logs.
+
+--Curse system saves state between runs of given server.  Thus, cursed status
+  isn't reset when server restarts (no more free pass to griefers right before
+  an update).
+
+
+
+
+Version 123    2018-July-10
+
+--Fixed memory leak and uninitialized variable.
+
+--Fixed bad memory access in audio callback when shutting down.
+
+--Fixed memory leak in update process.
+
+
+
+
+Windows base update:   Version 65c    2018-July-10
+
+--Fixed slow newline replacement code (as part of update process) that was 
+  getting bogged down when processing text files with many lines.
+
+
+
+
+Server Fixes
+
+--Anyone can name a held baby, even adoptive parents.  They get the last name
+  of their adoptive parent.  An unnamed person who is older than baby age can
+  be named by anyone nearby, but they will never have a last name.
+
+--If a name isn't unique as far as the curse system is concerned, a roman
+  numeral suffix (II, III, IV, V, etc.) is automatically added.
+
+--Data-only diff bundle generation script now skips scenes.  They never should
+  have been included, and the tutorial map scene was BIG (26,000 lines).
+
+
+
+
 Version 122    2018-July-6
 
 --Back to updating hard-coded version number with every client update.  Not
