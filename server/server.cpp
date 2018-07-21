@@ -52,6 +52,13 @@
 #include "minorGems/util/random/JenkinsRandomSource.h"
 
 
+//#define IGNORE_PRINTF
+
+#ifdef IGNORE_PRINTF
+#define printf(fmt, ...) (0)
+#endif
+
+
 static JenkinsRandomSource randSource;
 
 
@@ -191,7 +198,8 @@ typedef struct LiveObject {
         int displayID;
         
         char *name;
-
+        char nameHasSuffix;
+        
         char *lastSay;
 
         int curseLevel;
@@ -1061,6 +1069,7 @@ static int pathDeltaMax = 16;
 
 
 // if extraPos present in result, destroyed by caller
+// inMessage may be modified by this call
 ClientMessage parseMessage( LiveObject *inPlayer, char *inMessage ) {
     
     char nameBuffer[100];
@@ -1076,9 +1085,50 @@ ClientMessage parseMessage( LiveObject *inPlayer, char *inMessage ) {
     m.saidText = NULL;
     m.bugText = NULL;
     // don't require # terminator here
+    
+    
+    //int numRead = sscanf( inMessage, 
+    //                      "%99s %d %d", nameBuffer, &( m.x ), &( m.y ) );
+    
 
-    int numRead = sscanf( inMessage, 
-                          "%99s %d %d", nameBuffer, &( m.x ), &( m.y ) );
+    // profiler finds sscanf as a hotspot
+    // try a custom bit of code instead
+    
+    int numRead = 0;
+    
+    int parseLen = strlen( inMessage );
+    if( parseLen > 99 ) {
+        parseLen = 99;
+        }
+    
+    for( int i=0; i<parseLen; i++ ) {
+        if( inMessage[i] == ' ' ) {
+            switch( numRead ) {
+                case 0:
+                    if( i != 0 ) {
+                        memcpy( nameBuffer, inMessage, i );
+                        nameBuffer[i] = '\0';
+                        numRead++;
+                        // rewind back to read the space again
+                        // before the first number
+                        i--;
+                        }
+                    break;
+                case 1:
+                    m.x = atoi( &( inMessage[i] ) );
+                    numRead++;
+                    break;
+                case 2:
+                    m.y = atoi( &( inMessage[i] ) );
+                    numRead++;
+                    break;
+                }
+            if( numRead == 3 ) {
+                break;
+                }
+            }
+        }
+    
 
     
     if( numRead >= 2 &&
@@ -1108,12 +1158,12 @@ ClientMessage parseMessage( LiveObject *inPlayer, char *inMessage ) {
     if( strcmp( nameBuffer, "MOVE" ) == 0) {
         m.type = MOVE;
 
+        // in place, so we don't need to deallocate them
         SimpleVector<char *> *tokens =
-            tokenizeString( inMessage );
+            tokenizeStringInPlace( inMessage );
         
         // require an odd number at least 5
         if( tokens->size() < 5 || tokens->size() % 2 != 1 ) {
-            tokens->deallocateStringElements();
             delete tokens;
             
             m.type = UNKNOWN;
@@ -1131,9 +1181,14 @@ ClientMessage parseMessage( LiveObject *inPlayer, char *inMessage ) {
             char *xToken = tokens->getElementDirect( 3 + e * 2 );
             char *yToken = tokens->getElementDirect( 3 + e * 2 + 1 );
             
+            // profiler found sscanf is a bottleneck here
+            // try atoi instead
+            //sscanf( xToken, "%d", &( m.extraPos[e].x ) );
+            //sscanf( yToken, "%d", &( m.extraPos[e].y ) );
+
+            m.extraPos[e].x = atoi( xToken );
+            m.extraPos[e].y = atoi( yToken );
             
-            sscanf( xToken, "%d", &( m.extraPos[e].x ) );
-            sscanf( yToken, "%d", &( m.extraPos[e].y ) );
             
             if( abs( m.extraPos[e].x ) > pathDeltaMax ||
                 abs( m.extraPos[e].y ) > pathDeltaMax ) {
@@ -1155,7 +1210,6 @@ ClientMessage parseMessage( LiveObject *inPlayer, char *inMessage ) {
             m.extraPos[e].y += m.y;
             }
         
-        tokens->deallocateStringElements();
         delete tokens;
         }
     else if( strcmp( nameBuffer, "USE" ) == 0 ) {
@@ -2779,57 +2833,7 @@ void handleForcedBabyDrop(
 
 
 
-char isMapSpotBlocking( int inX, int inY ) {
-    
-    int target = getMapObject( inX, inY );
 
-    if( target != 0 ) {
-        ObjectRecord *obj = getObject( target );
-    
-        if( obj->blocksWalking ) {
-            return true;
-            }
-        }
-    
-    // not directly blocked
-    // need to check for wide objects to left and right
-    int maxR = getMaxWideRadius();
-    
-    for( int dx = -maxR; dx <= maxR; dx++ ) {
-        
-        if( dx != 0 ) {
-            
-            int nX = inX + dx;
-        
-            int nID = getMapObject( nX, inY );
-            
-            if( nID != 0 ) {
-                ObjectRecord *nO = getObject( nID );
-                
-                if( nO->wide ) {
-                    
-                    int dist;
-                    int minDist;
-                    
-                    if( dx < 0 ) {
-                        dist = -dx;
-                        minDist = nO->rightBlockingRadius;
-                        }
-                    else {
-                        dist = dx;
-                        minDist = nO->leftBlockingRadius;
-                        }
-                    
-                    if( dist <= minDist ) {
-                        return true;
-                        }
-                    }
-                }
-            }
-        }
-    
-    return false;
-    }
 
 
 
@@ -3791,6 +3795,7 @@ int processLoggedInPlayer( Socket *inSock,
     newObject.lineage = new SimpleVector<int>();
     
     newObject.name = NULL;
+    newObject.nameHasSuffix = false;
     newObject.lastSay = NULL;
     newObject.curseLevel = 0;
     
@@ -5056,15 +5061,17 @@ void monumentStep() {
 // inPlayerName may be destroyed inside this function
 // returns a uniquified name, sometimes newly allocated.
 // return value destroyed by caller
-char *getUniqueCursableName( char *inPlayerName ) {
+char *getUniqueCursableName( char *inPlayerName, char *outSuffixAdded ) {
     
     char dup = isNameDuplicateForCurses( inPlayerName );
     
     if( ! dup ) {
+        *outSuffixAdded = false;
         return inPlayerName;
         }
     else {
-        
+        *outSuffixAdded = true;
+
         int targetPersonNumber = 1;
         
         char *fullName = stringDuplicate( inPlayerName );
@@ -6442,7 +6449,7 @@ int main() {
                     else if( m.type == MOVE ) {
                         //Thread::staticSleep( 1000 );
 
-
+                        /*
                         printf( "  Processing move, "
                                 "we think player at old start pos %d,%d\n",
                                 nextPlayer->xs,
@@ -6454,7 +6461,8 @@ int main() {
                                     nextPlayer->pathToDest[p].y );
                             }
                         printf( "\n" );
-
+                        */
+                        
                         char interrupt = false;
                         char pathPrefixAdded = false;
                         
@@ -6496,12 +6504,12 @@ int main() {
                                 cPos.y = nextPlayer->ys;
                                 }
                             
-                            
+                            /*
                             printf( "   we think player in motion or "
                                     "done moving at %d,%d\n",
                                     cPos.x,
                                     cPos.y );
-       
+                            */
                             nextPlayer->xs = cPos.x;
                             nextPlayer->ys = cPos.y;
                             
@@ -6558,10 +6566,11 @@ int main() {
                                     theirPathIndex = 0;
                                     }
                                 
-
+                                /*
                                 printf( "They are on our path at index %d\n",
                                         theirPathIndex );
-                                
+                                */
+
                                 // okay, they think they are on last path
                                 // that we had for them
 
@@ -6612,9 +6621,11 @@ int main() {
                                 // they are, and we don't need to prefix
                                 // their path
 
+                                /*
                                 printf( "Prefixing their path "
                                         "with %d steps\n",
                                         unfilteredPath.size() );
+                                */
                                 }
                             }
                         
@@ -6628,7 +6639,7 @@ int main() {
                             unfilteredPath.push_back( m.extraPos[p] );
                             }
                         
-
+                        /*
                         printf( "Unfiltered path = " );
                         for( int p=0; p<unfilteredPath.size(); p++ ) {
                             printf( "(%d, %d) ",
@@ -6636,6 +6647,7 @@ int main() {
                                     unfilteredPath.getElementDirect(p).y );
                             }
                         printf( "\n" );
+                        */
 
                         // remove any duplicate spots due to doubling back
 
@@ -6645,7 +6657,7 @@ int main() {
                                        unfilteredPath.getElementDirect(p) ) ) {
                                 unfilteredPath.deleteElement( p );
                                 p--;
-                                printf( "FOUND duplicate path element\n" );
+                                //printf( "FOUND duplicate path element\n" );
                                 }
                             }
                             
@@ -6663,15 +6675,17 @@ int main() {
 
                             // send update to terminate move right now
                             playerIndicesToSendUpdatesAbout.push_back( i );
+                            /*
                             printf( "A move that takes player "
                                     "where they already are, "
                                     "ending move now\n" );
+                            */
                             }
                         else {
                             // an actual move away from current xs,ys
 
                             if( interrupt ) {
-                                printf( "Got valid move interrupt\n" );
+                                //printf( "Got valid move interrupt\n" );
                                 }
                                 
 
@@ -6702,10 +6716,11 @@ int main() {
                                     break;
                                     }
                                 }
-                            
+                            /*
                             printf( "Start index = %d (startFound = %d)\n", 
                                     startIndex, startFound );
-                            
+                            */
+
                             if( ! startFound &&
                                 ! isGridAdjacentDiag( 
                                     unfilteredPath.
@@ -6850,12 +6865,12 @@ int main() {
                            
                                 double secondsAlreadyDone = distAlreadyDone / 
                                     moveSpeed;
-                                
+                                /*
                                 printf( "Skipping %f seconds along new %f-"
                                         "second path\n",
                                         secondsAlreadyDone, 
                                         nextPlayer->moveTotalSeconds );
-                                
+                                */
                                 nextPlayer->moveStartTime = 
                                     Time::getCurrentTime() - 
                                     secondsAlreadyDone;
@@ -6924,7 +6939,8 @@ int main() {
                                                                 eveName, 
                                                                 close );
                                 nextPlayer->name = getUniqueCursableName( 
-                                    nextPlayer->name );
+                                    nextPlayer->name, 
+                                    &( nextPlayer->nameHasSuffix ) );
 
                                 logName( nextPlayer->id,
                                          nextPlayer->email,
@@ -6954,6 +6970,32 @@ int main() {
                                         if( lastName == NULL ) {
                                             lastName = "";
                                             }
+                                        else if( nextPlayer->nameHasSuffix ) {
+                                            // only keep last name
+                                            // if it contains another
+                                            // space (the suffix is after
+                                            // the last name).  Otherwise
+                                            // we are probably confused,
+                                            // and what we think
+                                            // is the last name IS the suffix.
+                                            
+                                            char *suffixPos =
+                                                strstr( (char*)&( lastName[1] ),
+                                                        " " );
+                                            
+                                            if( suffixPos == NULL ) {
+                                                // last name is suffix, actually
+                                                // don't pass suffix on to baby
+                                                lastName = "";
+                                                }
+                                            else {
+                                                // last name plus suffix
+                                                // okay to pass to baby
+                                                // because we strip off
+                                                // third part of name
+                                                // (suffix) below.
+                                                }
+                                            }
                                         }
 
                                     const char *close = 
@@ -6979,7 +7021,8 @@ int main() {
                                         }
                                     
                                     babyO->name = getUniqueCursableName( 
-                                        babyO->name );
+                                        babyO->name, 
+                                        &( babyO->nameHasSuffix ) );
                                     
                                     logName( babyO->id,
                                              babyO->email,
@@ -7032,7 +7075,8 @@ int main() {
                                         stringDuplicate( close );
                                     
                                     closestOther->name = getUniqueCursableName( 
-                                        closestOther->name );
+                                        closestOther->name,
+                                        &( closestOther->nameHasSuffix ) );
 
                                     logName( closestOther->id,
                                              closestOther->email,

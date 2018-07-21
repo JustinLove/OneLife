@@ -11,7 +11,7 @@ vsyncWarning3 "GRAPHICS CARD CONTROL PANEL CAN FIX THIS"
 vsyncContinueMessage "PRESS Y TO CONTINUE WITHOUT VSYNC OR ESC TO QUIT"
 
 
-fpsErrorLogin "ERROR:  FPS MISMATCH DETECTED.  VSYNC CHANGED?"
+fpsErrorLogin "ERROR:  FPS MISMATCH DETECTED.  VSYNC CHANGED?##MEASURED %0.1f FPS, EXPECTING %d FPS"
 
 
 
@@ -103,6 +103,7 @@ cancel "CANCEL"
 backButton "BACK"
 restartButton "RESTART"
 fullscreen "FULLSCREEN:"
+borderless "BORDERLESS:"
 musicLoudness "MUSIC LOUDNESS:"
 soundLoudness "SOUND LOUDNESS:"
 
@@ -112,6 +113,11 @@ vsyncOn "USING VSYNC:"
 vsyncYes "YES"
 vsyncNo "NO"
 redetectButton "RE-DETECT"
+
+useCustomServer "USE CUSTOM SERVER:"
+address "ADDRESS:"
+port "PORT:"
+
 
 
 downloadingUpdate "DOWNLOADING UPDATE"
@@ -136,6 +142,12 @@ serverShutdown "SERVER HAS BEEN SHUT DOWN"
 
 serverFull "SERVER IS FULL"
 
+connectionFailed "CONNECTION FAILED"
+
+
+customServerMesssage "CUSTOM SERVER:  %s : %d"
+
+connecting "CONNECTING"
 
 waitingBirth "WAITING TO BE BORN"
 waitingBirthFriends "WAITING TO BE BORN AS %s"
@@ -278,6 +290,7 @@ reborn "GET REBORN"
 tutorial "TUTORIAL"
 restartTutorial "RESTART TUTORIAL"
 
+menu "MENU"
 
 
 bugMessage1 "WILD BUG APPEARED!####AFTER THIS LIFE IS OVER,##PLEASE QUIT AND EMAIL YOUR STDOUT.TXT TO:"

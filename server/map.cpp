@@ -279,6 +279,22 @@ static HashTable<timeSec_t> liveDecayRecordPresentHashTable( 1024 );
 static HashTable<timeSec_t> liveDecayRecordLastLookTimeHashTable( 1024 );
 
 
+typedef struct ContRecord {
+    int maxSlots;
+    int maxSubSlots;
+    } ContRecord;
+
+static ContRecord defaultContRecord = { 0, 0 };
+
+
+// track max tracked contained for each x,y
+// this allows us to update last look times without getting contained count
+// from map
+// indexed as x, y, 0, 0
+static HashTable<ContRecord> 
+liveDecayRecordLastLookTimeMaxContainedHashTable( 1024, defaultContRecord );
+
+
 
 // track currently in-process movements so that we can be queried
 // about whether arrival has happened or not
@@ -455,8 +471,6 @@ static void biomeDBPut( int inX, int inY, int inValue, int inSecondPlace,
     
     anyBiomesInDB = true;
     DB_put( &biomeDB, key, value );
-
-    dbLookTimePut( inX, inY, MAP_TIMESEC );
     }
     
 
@@ -564,7 +578,7 @@ static BiomeCacheRecord biomeCache[ BIOME_CACHE_SIZE ];
 #define CACHE_PRIME_C 528383237
 #define CACHE_PRIME_D 148497157
 
-static int computeBiomeCacheHash( int inKeyA, int inKeyB ) {
+static int computeXYCacheHash( int inKeyA, int inKeyB ) {
     
     int hashKey = ( inKeyA * CACHE_PRIME_A + 
                     inKeyB * CACHE_PRIME_B ) % BIOME_CACHE_SIZE;
@@ -591,7 +605,7 @@ static int biomeGetCached( int inX, int inY,
                            int *outSecondPlaceIndex,
                            double *outSecondPlaceGap ) {
     BiomeCacheRecord r =
-        biomeCache[ computeBiomeCacheHash( inX, inY ) ];
+        biomeCache[ computeXYCacheHash( inX, inY ) ];
 
     if( r.x == inX && r.y == inY ) {
         *outSecondPlaceIndex = r.secondPlace;
@@ -610,7 +624,7 @@ static void biomePutCached( int inX, int inY, int inBiome, int inSecondPlace,
                             double inSecondPlaceGap ) {
     BiomeCacheRecord r = { inX, inY, inBiome, inSecondPlace, inSecondPlaceGap };
     
-    biomeCache[ computeBiomeCacheHash( inX, inY ) ] = r;
+    biomeCache[ computeXYCacheHash( inX, inY ) ] = r;
     }
 
 
@@ -1356,10 +1370,6 @@ typedef struct DBCacheRecord {
 static DBCacheRecord dbCache[ DB_CACHE_SIZE ];
 
 
-#define CACHE_PRIME_A 776509273
-#define CACHE_PRIME_B 904124281
-#define CACHE_PRIME_C 528383237
-#define CACHE_PRIME_D 148497157
 
 static int computeDBCacheHash( int inKeyA, int inKeyB, 
                                int inKeyC, int inKeyD ) {
@@ -1376,10 +1386,42 @@ static int computeDBCacheHash( int inKeyA, int inKeyB,
 
 
 
-static void initDBCache() {
+
+typedef struct DBTimeCacheRecord {
+        int x, y, slot, subCont;
+        timeSec_t timeVal;
+    } DBTimeCacheRecord;
+    
+static DBTimeCacheRecord dbTimeCache[ DB_CACHE_SIZE ];
+
+
+
+typedef struct BlockingCacheRecord {
+        int x, y;
+        // -1 if not present
+        char blocking;
+    } BlockingCacheRecord;
+    
+static BlockingCacheRecord blockingCache[ DB_CACHE_SIZE ];
+
+
+
+
+
+static void initDBCaches() {
     DBCacheRecord blankRecord = { 0, 0, 0, 0, -2 };
     for( int i=0; i<DB_CACHE_SIZE; i++ ) {
         dbCache[i] = blankRecord;
+        }
+    // 1 for empty (because 0 is a valid value)
+    DBTimeCacheRecord blankTimeRecord = { 0, 0, 0, 0, 1 };
+    for( int i=0; i<DB_CACHE_SIZE; i++ ) {
+        dbTimeCache[i] = blankTimeRecord;
+        }
+    // -1 for empty
+    BlockingCacheRecord blankBlockingRecord = { 0, 0, -1 };
+    for( int i=0; i<DB_CACHE_SIZE; i++ ) {
+        blockingCache[i] = blankBlockingRecord;
         }
     }
 
@@ -1414,7 +1456,74 @@ static void dbPutCached( int inX, int inY, int inSlot, int inSubCont,
 
 
 
+// returns 1 on miss
+static int dbTimeGetCached( int inX, int inY, int inSlot, int inSubCont ) {
+    DBTimeCacheRecord r =
+        dbTimeCache[ computeDBCacheHash( inX, inY, inSlot, inSubCont ) ];
+
+    if( r.x == inX && r.y == inY && 
+        r.slot == inSlot && r.subCont == inSubCont &&
+        r.timeVal != 1 ) {
+        return r.timeVal;
+        }
+    else {
+        return 1;
+        }
+    }
+
+
+
+static void dbTimePutCached( int inX, int inY, int inSlot, int inSubCont, 
+                         timeSec_t inValue ) {
+    DBTimeCacheRecord r = { inX, inY, inSlot, inSubCont, inValue };
+    
+    dbTimeCache[ computeDBCacheHash( inX, inY, inSlot, inSubCont ) ] = r;
+    }
+
+
+
+
+
+// returns -1 on miss
+static char blockingGetCached( int inX, int inY ) {
+    BlockingCacheRecord r =
+        blockingCache[ computeXYCacheHash( inX, inY ) ];
+
+    if( r.x == inX && r.y == inY &&
+        r.blocking != -1 ) {
+        return r.blocking;
+        }
+    else {
+        return -1;
+        }
+    }
+
+
+
+static void blockingPutCached( int inX, int inY, char inBlocking ) {
+    BlockingCacheRecord r = { inX, inY, inBlocking };
+    
+    blockingCache[ computeXYCacheHash( inX, inY ) ] = r;
+    }
+
+
+static void blockingClearCached( int inX, int inY ) {
+    
+    BlockingCacheRecord *r =
+        &( blockingCache[ computeXYCacheHash( inX, inY ) ] );
+
+    if( r->x == inX && r->y == inY ) {
+        r->blocking = -1;
+        }
+    }
+
+
+
+
+
 char lookTimeDBEmpty = false;
+char skipLookTimeCleanup = 0;
+char skipRemovedObjectCleanup = 0;
 
 // if lookTimeDBEmpty, then we init all map cell look times to NOW
 int cellsLookedAtToInit = 0;
@@ -1441,7 +1550,7 @@ int DB_open_timeShrunk(
 
     File dbFile( NULL, path );
     
-    if( ! dbFile.exists() || lookTimeDBEmpty ) {
+    if( ! dbFile.exists() || lookTimeDBEmpty || skipLookTimeCleanup ) {
 
         if( lookTimeDBEmpty ) {
             AppLog::infoF( "No lookTimes present, not cleaning %s", path );
@@ -1454,7 +1563,7 @@ int DB_open_timeShrunk(
                                  key_size,
                                  value_size );
 
-        if( ! error ) {
+        if( ! error && ! skipLookTimeCleanup ) {
             // add look time for cells in this DB to present
             // essentially resetting all look times to NOW
             
@@ -1930,7 +2039,7 @@ static void loadIntoMapFromFile( FILE *inFile,
 
 
 void initMap() {
-    initDBCache();
+    initDBCaches();
     initBiomeCache();
 
     mapCacheClear();
@@ -2069,6 +2178,18 @@ void initMap() {
     char lookTimeDBExists = false;
     
     File lookTimeDBFile( NULL, lookTimeDBName );
+
+
+
+    if( lookTimeDBFile.exists() &&
+        SettingsManager::getIntSetting( "flushLookTimes", 0 ) ) {
+        
+        AppLog::info( "flushLookTimes.ini set, deleting lookTime.db" );
+        
+        lookTimeDBFile.remove();
+        }
+
+
     
     lookTimeDBExists = lookTimeDBFile.exists();
 
@@ -2076,9 +2197,20 @@ void initMap() {
         lookTimeDBEmpty = true;
         }
 
-    DB lookTimeDB_old;
 
-    int error = DB_open( &lookTimeDB_old, 
+    skipLookTimeCleanup = 
+        SettingsManager::getIntSetting( "skipLookTimeCleanup", 0 );
+
+
+    if( skipLookTimeCleanup ) {
+        AppLog::info( "skipLookTimeCleanup.ini flag set, "
+                      "not cleaning databases based on stale look times." );
+        }
+
+    if( ! skipLookTimeCleanup ) {
+        DB lookTimeDB_old;
+        
+        int error = DB_open( &lookTimeDB_old, 
                              lookTimeDBName, 
                              KISSDB_OPEN_MODE_RWCREAT,
                              80000,
@@ -2088,34 +2220,31 @@ void initMap() {
                                // "double" on the server platform uses
                              );
     
-    if( error ) {
-        AppLog::errorF( "Error %d opening look time KissDB", error );
-        return;
-        }
-    
-    lookTimeDBOpen = true;
-
-    
-
-    int staleSec = SettingsManager::getIntSetting( "mapCellForgottenSeconds", 
-                                                   0 );
-    
-    if( lookTimeDBExists && staleSec > 0 ) {
-        AppLog::info( "\nCleaning stale look times from map..." );
-
-
-        static DB lookTimeDB_temp;
-        
-        const char *lookTimeDBName_temp = "lookTime_temp.db";
-
-        File tempDBFile( NULL, lookTimeDBName_temp );
-        
-        if( tempDBFile.exists() ) {
-            tempDBFile.remove();
+        if( error ) {
+            AppLog::errorF( "Error %d opening look time KissDB", error );
+            return;
             }
+    
+
+        int staleSec = 
+            SettingsManager::getIntSetting( "mapCellForgottenSeconds", 0 );
+    
+        if( lookTimeDBExists && staleSec > 0 ) {
+            AppLog::info( "\nCleaning stale look times from map..." );
+            
+            
+            static DB lookTimeDB_temp;
+        
+            const char *lookTimeDBName_temp = "lookTime_temp.db";
+
+            File tempDBFile( NULL, lookTimeDBName_temp );
+        
+            if( tempDBFile.exists() ) {
+                tempDBFile.remove();
+                }
         
 
-        error = DB_open( &lookTimeDB_temp, 
+            error = DB_open( &lookTimeDB_temp, 
                              lookTimeDBName_temp, 
                              KISSDB_OPEN_MODE_RWCREAT,
                              80000,
@@ -2125,63 +2254,64 @@ void initMap() {
                              // "double" on the server platform uses
                              );
     
-        if( error ) {
-            AppLog::errorF( "Error %d opening look time temp KissDB", error );
-            return;
-            }
+            if( error ) {
+                AppLog::errorF( 
+                    "Error %d opening look time temp KissDB", error );
+                return;
+                }
         
-        DB_Iterator dbi;
+            DB_Iterator dbi;
         
         
-        DB_Iterator_init( &lookTimeDB_old, &dbi );
+            DB_Iterator_init( &lookTimeDB_old, &dbi );
         
     
-        timeSec_t curTime = MAP_TIMESEC;
+            timeSec_t curTime = MAP_TIMESEC;
         
-        unsigned char key[8];
-        unsigned char value[8];
+            unsigned char key[8];
+            unsigned char value[8];
 
-        int total = 0;
-        int stale = 0;
+            int total = 0;
+            int stale = 0;
 
-        while( DB_Iterator_next( &dbi, key, value ) > 0 ) {
-            total++;
+            while( DB_Iterator_next( &dbi, key, value ) > 0 ) {
+                total++;
 
-            timeSec_t t = valueToTime( value );
+                timeSec_t t = valueToTime( value );
             
-            if( curTime - t >= staleSec ) {
-                // stale cell
-                // ignore
-                stale++;
+                if( curTime - t >= staleSec ) {
+                    // stale cell
+                    // ignore
+                    stale++;
+                    }
+                else {
+                    // non-stale
+                    // insert it in temp
+                    DB_put_new( &lookTimeDB_temp, key, value );
+                    }
                 }
-            else {
-                // non-stale
-                // insert it in temp
-                DB_put_new( &lookTimeDB_temp, key, value );
-                }
-            }
         
-        AppLog::infoF( "Cleaned %d / %d stale look times", stale, total );
+            AppLog::infoF( "Cleaned %d / %d stale look times", stale, total );
 
-        printf( "\n" );
+            printf( "\n" );
 
-        if( total == 0 ) {
-            lookTimeDBEmpty = true;
+            if( total == 0 ) {
+                lookTimeDBEmpty = true;
+                }
+
+            DB_close( &lookTimeDB_temp );
+            DB_close( &lookTimeDB_old );
+
+            tempDBFile.copy( &lookTimeDBFile );
+            tempDBFile.remove();
             }
-
-        DB_close( &lookTimeDB_temp );
-        DB_close( &lookTimeDB_old );
-
-        tempDBFile.copy( &lookTimeDBFile );
-        tempDBFile.remove();
+        else {
+            DB_close( &lookTimeDB_old );
+            }
         }
-    else {
-        DB_close( &lookTimeDB_old );
-        }
-    
 
 
-    error = DB_open( &lookTimeDB, 
+    int error = DB_open( &lookTimeDB, 
                          lookTimeDBName, 
                          KISSDB_OPEN_MODE_RWCREAT,
                          80000,
@@ -2195,7 +2325,9 @@ void initMap() {
         AppLog::errorF( "Error %d opening look time KissDB", error );
         return;
         }
-
+    
+    lookTimeDBOpen = true;
+    
     
 
 
@@ -2456,9 +2588,20 @@ void initMap() {
     
     delete [] allObjects;
 
-
-    int totalSetCount = cleanMap();
     
+    skipRemovedObjectCleanup = 
+        SettingsManager::getIntSetting( "skipRemovedObjectCleanup", 0 );
+
+
+
+    int totalSetCount = 1;
+
+    if( ! skipRemovedObjectCleanup ) {
+        cleanMap();
+        }
+    else {
+        AppLog::info( "Skipping cleaning map of removed objects" );
+        }
     
     if( totalSetCount == 0 ) {
         // map has been cleared
@@ -2575,6 +2718,13 @@ void freeMap() {
         SimpleVector<int> bContToCheck;
         
         
+        int skipUseDummyCleanup = 
+            SettingsManager::getIntSetting( "skipUseDummyCleanup", 0 );
+        
+        
+
+        
+        if( !skipUseDummyCleanup )
         while( DB_Iterator_next( &dbi, key, value ) > 0 ) {
         
             int s = valueToInt( &( key[8] ) );
@@ -2673,21 +2823,31 @@ void freeMap() {
                 }
             }
 
-
-        AppLog::infoF(
-            "...%d useDummy/variable objects present that were changed "
-            "back into their unused parent.",
-            xToPlace.size() );
-        AppLog::infoF( 
-            "...%d contained useDummy/variable objects present and changed "
-            "back to usused parent.",
-            numContChanged );
-
+        
+        if( ! skipUseDummyCleanup ) {    
+            AppLog::infoF(
+                "...%d useDummy/variable objects present that were changed "
+                "back into their unused parent.",
+                xToPlace.size() );
+            AppLog::infoF( 
+                "...%d contained useDummy/variable objects present and changed "
+                "back to usused parent.",
+                numContChanged );
+            }
+        else {
+            AppLog::info( "Skipping use dummy cleanup." );
+            }
+        
         printf( "\n" );
 
-        AppLog::info( "Now running normal map clean..." );
-        cleanMap();
-
+        if( ! skipRemovedObjectCleanup ) {
+            AppLog::info( "Now running normal map clean..." );
+            cleanMap();
+            }
+        else {
+            AppLog::info( "Skipping running normal map clean." );
+            }
+        
         
         DB_close( &db );
         }
@@ -2772,10 +2932,6 @@ static int dbGet( int inX, int inY, int inSlot, int inSubCont = 0 ) {
     int cachedVal = dbGetCached( inX, inY, inSlot, inSubCont );
     if( cachedVal != -2 ) {
         
-        if( cachedVal > 0 ) {
-            dbLookTimePut( inX, inY, MAP_TIMESEC );
-            }
-        
         return cachedVal;
         }
     
@@ -2801,10 +2957,6 @@ static int dbGet( int inX, int inY, int inSlot, int inSubCont = 0 ) {
         }
 
     dbPutCached( inX, inY, inSlot, inSubCont, returnVal );
-
-    if( returnVal > 0 ) {
-        dbLookTimePut( inX, inY, MAP_TIMESEC );
-        }
     
     return returnVal;
     }
@@ -2814,6 +2966,14 @@ static int dbGet( int inX, int inY, int inSlot, int inSubCont = 0 ) {
 
 // returns 0 if not found
 static timeSec_t dbTimeGet( int inX, int inY, int inSlot, int inSubCont = 0 ) {
+
+    timeSec_t cachedVal = dbTimeGetCached( inX, inY, inSlot, inSubCont );
+    if( cachedVal != 1 ) {
+        
+        return cachedVal;
+        }
+
+    
     unsigned char key[16];
     unsigned char value[8];
 
@@ -2822,13 +2982,19 @@ static timeSec_t dbTimeGet( int inX, int inY, int inSlot, int inSubCont = 0 ) {
     
     int result = DB_get( &timeDB, key, value );
     
+    timeSec_t timeVal;
+    
     if( result == 0 ) {
         // found
-        return valueToTime( value );
+        timeVal = valueToTime( value );
         }
     else {
-        return 0;
+        timeVal = 0;
         }
+
+    dbTimePutCached( inX, inY, inSlot, inSubCont, timeVal );
+    
+    return timeVal;
     }
 
 
@@ -2845,10 +3011,6 @@ static int dbFloorGet( int inX, int inY ) {
     if( result == 0 ) {
         // found
         int returnVal = valueToInt( value );
-        
-        if( returnVal > 0 ) {
-            dbLookTimePut( inX, inY, MAP_TIMESEC );
-            }
         
         return returnVal;
         }
@@ -2884,7 +3046,7 @@ timeSec_t dbLookTimeGet( int inX, int inY ) {
     unsigned char key[8];
     unsigned char value[8];
 
-    intPairToKey( inX, inY, key );
+    intPairToKey( inX/100, inY/100, key );
     
     int result = DB_get( &lookTimeDB, key, value );
     
@@ -2903,6 +3065,13 @@ timeSec_t dbLookTimeGet( int inX, int inY ) {
 static void dbPut( int inX, int inY, int inSlot, int inValue, 
                    int inSubCont = 0 ) {
     
+    if( inSlot == 0 && inSubCont == 0 ) {
+        // object has changed
+        // clear blocking cache
+        blockingClearCached( inX, inY );
+        }
+    
+
     // count all slot changes as changes, because we're storing
     // time in a separate database now (so we don't need to worry
     // about time changes being reported as map changes)
@@ -2965,7 +3134,6 @@ static void dbPut( int inX, int inY, int inSlot, int inValue,
     DB_put( &db, key, value );
 
     dbPutCached( inX, inY, inSlot, inSubCont, inValue );
-    dbLookTimePut( inX, inY, MAP_TIMESEC );
     }
 
 
@@ -2985,6 +3153,8 @@ static void dbTimePut( int inX, int inY, int inSlot, timeSec_t inTime,
             
     
     DB_put( &timeDB, key, value );
+
+    dbTimePutCached( inX, inY, inSlot, inSubCont, inTime );
     }
 
 
@@ -3022,7 +3192,6 @@ static void dbFloorPut( int inX, int inY, int inValue ) {
             
     
     DB_put( &floorDB, key, value );
-    dbLookTimePut( inX, inY, MAP_TIMESEC );
     }
 
 
@@ -3050,7 +3219,7 @@ void dbLookTimePut( int inX, int inY, timeSec_t inTime ) {
     unsigned char value[8];
     
 
-    intPairToKey( inX, inY, key );
+    intPairToKey( inX/100, inY/100, key );
     timeToValue( inTime, value );
             
     
@@ -3101,6 +3270,29 @@ static void trackETA( int inX, int inY, int inSlot, timeSec_t inETA,
                 liveDecayRecordLastLookTimeHashTable.insert( inX, inY, inSlot,
                                                              inSubCont,
                                                              MAP_TIMESEC );
+                if( inSlot > 0 || inSubCont > 0 ) {
+                    
+                    ContRecord *oldCount = 
+                        liveDecayRecordLastLookTimeMaxContainedHashTable.
+                        lookupPointer( inX, inY, 0, 0 );
+                    
+                    if( oldCount != NULL ) {
+                        // update if needed
+                        if( oldCount->maxSlots < inSlot ) {
+                            oldCount->maxSlots = inSlot;
+                            }
+                        if( oldCount->maxSubSlots < inSubCont ) {
+                            oldCount->maxSubSlots = inSubCont;
+                            }
+                        }
+                    else {
+                        // insert new
+                        ContRecord r = { inSlot, inSubCont };
+                        
+                        liveDecayRecordLastLookTimeMaxContainedHashTable.
+                            insert( inX, inY, 0, 0, r );
+                        }
+                    }
                 }
             }
         }
@@ -3222,12 +3414,10 @@ int *getContained( int inX, int inY, int *outNumContained, int inSubCont ) {
     timeSec_t currentTime = MAP_TIMESEC;
     
     for( int i=0; i<*outNumContained; i++ ) {
-        char found;
         timeSec_t *oldLookTime =
             liveDecayRecordLastLookTimeHashTable.lookupPointer( inX, inY,
                                                                 i + 1,
-                                                                inSubCont,
-                                                                &found );
+                                                                inSubCont );
         if( oldLookTime != NULL ) {
             // look at it now
             *oldLookTime = currentTime;
@@ -3289,6 +3479,10 @@ timeSec_t *getContainedEtaDecay( int inX, int inY, int *outNumContained,
 
 
 int checkDecayObject( int inX, int inY, int inID ) {
+    if( inID == 0 ) {
+        return inID;
+        }
+    
     TransRecord *t = getPTrans( -1, inID );
 
     if( t == NULL ) {
@@ -4112,51 +4306,42 @@ void lookAtRegion( int inXStart, int inYStart, int inXEnd, int inYEnd ) {
     for( int y=inYStart; y<=inYEnd; y++ ) {
         for( int x=inXStart; x<=inXEnd; x++ ) {
         
-            char found;
             timeSec_t *oldLookTime = 
                 liveDecayRecordLastLookTimeHashTable.lookupPointer( x, y, 
-                                                                    0, 0,
-                                                                    &found );
+                                                                    0, 0 );
     
             if( oldLookTime != NULL ) {
                 // we're tracking decay for this cell
                 *oldLookTime = currentTime;
                 }
 
-            int numContained;
+            ContRecord *contRec = 
+                liveDecayRecordLastLookTimeMaxContainedHashTable.
+                lookupPointer( x, y, 0, 0 );
             
-            int *contained = getContained( x, y, &numContained );
+            if( contRec != NULL ) {
 
-            for( int c=0; c<numContained; c++ ) {
+                for( int c=1; c<= contRec->maxSlots; c++ ) {
                 
-                char found;
-                oldLookTime =
-                    liveDecayRecordLastLookTimeHashTable.lookupPointer( 
-                        x, y, c + 1, 0, &found );
-                if( oldLookTime != NULL ) {
-                    // look at it now
-                    *oldLookTime = currentTime;
-                    }
-                
-                if( contained[c] < 0 ) {
-                    // sub contained
-                    int numSub = getNumContained( x, y, c + 1 );
-                    
-                    for( int s=0; s<numSub; s++ ) {
+                    oldLookTime =
+                        liveDecayRecordLastLookTimeHashTable.lookupPointer( 
+                            x, y, c, 0 );
+                    if( oldLookTime != NULL ) {
+                        // look at it now
+                        *oldLookTime = currentTime;
+                        }            
+
+                    for( int s=s; s<= contRec->maxSubSlots; s++ ) {
                         
                         oldLookTime =
                             liveDecayRecordLastLookTimeHashTable.lookupPointer( 
-                                x, y, s + 1, c+1, &found );
+                                x, y, c, s );
                         if( oldLookTime != NULL ) {
                             // look at it now
                             *oldLookTime = currentTime;
                             }
                         }
                     }
-                }
-            
-            if( contained != NULL ) {
-                delete [] contained;
                 }
             }
         }
@@ -4167,10 +4352,8 @@ void lookAtRegion( int inXStart, int inYStart, int inXEnd, int inYEnd ) {
 int getMapObject( int inX, int inY ) {
 
     // look at this map cell
-    char found;
     timeSec_t *oldLookTime = 
-        liveDecayRecordLastLookTimeHashTable.lookupPointer( inX, inY, 0, 0,
-                                                            &found );
+        liveDecayRecordLastLookTimeHashTable.lookupPointer( inX, inY, 0, 0 );
     
     timeSec_t curTime = MAP_TIMESEC;
 
@@ -4240,7 +4423,13 @@ unsigned char *getChunkMessage( int inStartX, int inStartY,
     int endY = inStartY + inHeight;
     int endX = inStartX + inWidth;
 
-    
+    timeSec_t curTime = MAP_TIMESEC;
+
+    // look at four corners of chunk whenever we fetch one
+    dbLookTimePut( inStartX, inStartY, curTime );
+    dbLookTimePut( inStartX, endY, curTime );
+    dbLookTimePut( endX, inStartY, curTime );
+    dbLookTimePut( endX, endY, curTime );
     
     for( int y=inStartY; y<endY; y++ ) {
         int chunkY = y - inStartY;
@@ -4409,6 +4598,75 @@ unsigned char *getChunkMessage( int inStartX, int inStartY,
 
 
 
+
+
+
+
+char isMapSpotBlocking( int inX, int inY ) {
+    
+    char cachedVal = blockingGetCached( inX, inY );
+    if( cachedVal != -1 ) {
+        
+        return cachedVal;
+        }
+
+
+    int target = getMapObject( inX, inY );
+
+    if( target != 0 ) {
+        ObjectRecord *obj = getObject( target );
+    
+        if( obj->blocksWalking ) {
+            // only cache direct hits
+            // wide objects that block are difficult to clear from cache
+            // when map cell changes
+            blockingPutCached( inX, inY, 1 );
+            return true;
+            }
+        }
+    
+    // not directly blocked
+    // need to check for wide objects to left and right
+    int maxR = getMaxWideRadius();
+    
+    for( int dx = -maxR; dx <= maxR; dx++ ) {
+        
+        if( dx != 0 ) {
+            
+            int nX = inX + dx;
+        
+            int nID = getMapObject( nX, inY );
+            
+            if( nID != 0 ) {
+                ObjectRecord *nO = getObject( nID );
+                
+                if( nO->wide ) {
+                    
+                    int dist;
+                    int minDist;
+                    
+                    if( dx < 0 ) {
+                        dist = -dx;
+                        minDist = nO->rightBlockingRadius;
+                        }
+                    else {
+                        dist = dx;
+                        minDist = nO->leftBlockingRadius;
+                        }
+                    
+                    if( dist <= minDist ) {
+                        // don't cache results from wide objects
+                        return true;
+                        }
+                    }
+                }
+            }
+        }
+    
+    // cache non-blocking results
+    blockingPutCached( inX, inY, 0 );
+    return false;
+    }
 
 
 
@@ -5103,6 +5361,52 @@ int getNextDecayDelta() {
 
 
 
+static void cleanMaxContainedHashTable( int inX, int inY ) {
+    
+    ContRecord *oldCount = 
+        liveDecayRecordLastLookTimeMaxContainedHashTable.
+        lookupPointer( inX, inY, 0, 0 );
+                
+    if( oldCount != NULL ) {
+    
+        int maxFoundSlot = 0;
+        int maxFoundSubSlot = 0;
+        
+        for( int c=1; c<= oldCount->maxSlots; c++ ) {
+
+            for( int s=0; s<= oldCount->maxSubSlots; s++ ) {
+                timeSec_t *val =
+                    liveDecayRecordLastLookTimeHashTable.lookupPointer(
+                        inX, inY, c, s );
+                
+                if( val != NULL ) {
+                    maxFoundSlot = c;
+                    maxFoundSubSlot = s;
+                    }
+                }
+            }
+        
+
+        if( maxFoundSlot == 0 && maxFoundSubSlot == 0 ) {
+            liveDecayRecordLastLookTimeMaxContainedHashTable.
+                remove( inX, inY, 0, 0 );
+            }
+        else {
+            if( maxFoundSlot < oldCount->maxSlots ) {
+                oldCount->maxSlots = maxFoundSlot;
+                }
+            if( maxFoundSubSlot < oldCount->maxSubSlots ) {
+                oldCount->maxSubSlots = maxFoundSubSlot;
+                }            
+            }
+        
+        
+        }
+    }
+
+
+
+
 void stepMap( SimpleVector<MapChangeRecord> *inMapChanges, 
               SimpleVector<ChangePosition> *inChangePosList ) {
     
@@ -5141,6 +5445,7 @@ void stepMap( SimpleVector<MapChangeRecord> *inMapChanges,
                     // don't even apply this decay now
                     liveDecayRecordLastLookTimeHashTable.remove( 
                         r.x, r.y, r.slot, r.subCont );
+                    cleanMaxContainedHashTable( r.x, r.y );
                     continue;
                     }
                 // else keep lastlook time around in case
@@ -5178,6 +5483,8 @@ void stepMap( SimpleVector<MapChangeRecord> *inMapChanges,
             // forget last look time
             liveDecayRecordLastLookTimeHashTable.remove( 
                 r.x, r.y, r.slot, r.subCont );
+            
+            cleanMaxContainedHashTable( r.x, r.y );
             }
         }
     
@@ -5381,6 +5688,9 @@ void getEvePosition( char *inEmail, int *outX, int *outY ) {
         // New method:
         GridPos eveLocToUse = eveLocation;
         
+        maxEveLocationUsage = 
+            SettingsManager::getIntSetting( "maxEveStartupLocationUsage", 10 );
+
         if( eveLocationUsage < maxEveLocationUsage ) {
             eveLocationUsage++;
             // keep using same location
