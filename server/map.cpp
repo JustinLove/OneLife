@@ -19,7 +19,8 @@
 #include "minorGems/formats/encodingUtils.h"
 
 #include "kissdb.h"
-#include "stackdb.h"
+//#include "stackdb.h"
+#include "lineardb.h"
 
 
 /*
@@ -33,9 +34,10 @@
 #define DB_Iterator  KISSDB_Iterator
 #define DB_Iterator_init  KISSDB_Iterator_init
 #define DB_Iterator_next  KISSDB_Iterator_next
+#define DB_maxStack (int)( db.num_hash_tables )
 */
 
-/**/
+/*
 #define DB STACKDB
 #define DB_open STACKDB_open
 #define DB_close STACKDB_close
@@ -46,7 +48,21 @@
 #define DB_Iterator  STACKDB_Iterator
 #define DB_Iterator_init  STACKDB_Iterator_init
 #define DB_Iterator_next  STACKDB_Iterator_next
-/**/
+#define DB_maxStack db.maxStackDepth
+*/
+
+
+#define DB LINEARDB
+#define DB_open LINEARDB_open
+#define DB_close LINEARDB_close
+#define DB_get LINEARDB_get
+#define DB_put LINEARDB_put
+// no distinction between put and put_new in lineardb
+#define DB_put_new LINEARDB_put
+#define DB_Iterator  LINEARDB_Iterator
+#define DB_Iterator_init  LINEARDB_Iterator_init
+#define DB_Iterator_next  LINEARDB_Iterator_next
+#define DB_maxStack db.maxProbeDepth
 
 
 
@@ -320,6 +336,10 @@ static SimpleVector<ChangePosition> mapChangePosSinceLastStep;
 
 
 static char anyBiomesInDB = false;
+static int maxBiomeXLoc = -2000000000;
+static int maxBiomeYLoc = -2000000000;
+static int minBiomeXLoc = 2000000000;
+static int minBiomeYLoc = 2000000000;
 
 
 
@@ -470,6 +490,21 @@ static void biomeDBPut( int inX, int inY, int inValue, int inSecondPlace,
             
     
     anyBiomesInDB = true;
+
+    if( inX > maxBiomeXLoc ) {
+        maxBiomeXLoc = inX;
+        }
+    if( inX < minBiomeXLoc ) {
+        minBiomeXLoc = inX;
+        }
+    if( inY > maxBiomeYLoc ) {
+        maxBiomeYLoc = inY;
+        }
+    if( inY < minBiomeYLoc ) {
+        minBiomeYLoc = inY;
+        }
+    
+
     DB_put( &biomeDB, key, value );
     }
     
@@ -718,9 +753,12 @@ static int getMapBiomeIndex( int inX, int inY,
     
     int dbBiome = -1;
     
-    if( anyBiomesInDB ) {
+    if( anyBiomesInDB && 
+        inX >= minBiomeXLoc && inX <= maxBiomeXLoc &&
+        inY >= minBiomeYLoc && inY <= maxBiomeYLoc ) {
         // don't bother with this call unless biome DB has
-        // something in it
+        // something in it, and this inX,inY is in the region where biomes
+        // exist in the database (tutorial loading, or test maps)
         dbBiome = biomeDBGet( inX, inY,
                               &secondPlaceBiome,
                               outSecondPlaceGap );
@@ -1755,6 +1793,7 @@ int cleanMap() {
     SimpleVector<int> xContToCheck;
     SimpleVector<int> yContToCheck;
     
+    int totalDBRecordCount = 0;
     
     int totalSetCount = 0;
     int numClearedCount = 0;
@@ -1762,6 +1801,7 @@ int cleanMap() {
     int numContainedCleared = 0;
     
     while( DB_Iterator_next( &dbi, key, value ) > 0 ) {
+        totalDBRecordCount++;
         
         int s = valueToInt( &( key[8] ) );
         int b = valueToInt( &( key[12] ) );
@@ -1938,7 +1978,9 @@ int cleanMap() {
     AppLog::infoF( 
         "...%d contained objects present, and %d needed to be cleared.",
         totalNumContained, numContainedCleared );
-
+    AppLog::infoF( "...%d database records total (%d max hash bin depth).", 
+                   totalDBRecordCount, DB_maxStack );
+    
     printf( "\n" );
     return totalSetCount;
     }
@@ -2442,14 +2484,36 @@ void initMap() {
     DB_Iterator biomeDBi;
     DB_Iterator_init( &biomeDB, &biomeDBi );
     
-    unsigned char *biomeKey[8];
-    unsigned char *biomeValue[12];
+    unsigned char biomeKey[8];
+    unsigned char biomeValue[12];
     
-    if( DB_Iterator_next( &biomeDBi, biomeKey, biomeValue ) ) {
-        // only check for the first one
+
+    while( DB_Iterator_next( &biomeDBi, biomeKey, biomeValue ) > 0 ) {
+        int x = valueToInt( biomeKey );
+        int y = valueToInt( &( biomeKey[4] ) );
+        
         anyBiomesInDB = true;
+        
+        if( x > maxBiomeXLoc ) {
+            maxBiomeXLoc = x;
+            }
+        if( x < minBiomeXLoc ) {
+            minBiomeXLoc = x;
+            }
+        if( y > maxBiomeYLoc ) {
+            maxBiomeYLoc = y;
+            }
+        if( y < minBiomeYLoc ) {
+            minBiomeYLoc = y;
+            }
         }
     
+    printf( "Min (x,y) of biome in db = (%d,%d), "
+            "Max (x,y) of biome in db = (%d,%d)\n",
+            minBiomeXLoc, minBiomeYLoc,
+            maxBiomeXLoc, maxBiomeYLoc );
+    
+            
 
 
     error = DB_open_timeShrunk( &floorDB, 
@@ -4458,8 +4522,12 @@ unsigned char *getChunkMessage( int inStartX, int inStartY,
             
 
             int numContained;
-            int *contained = getContained( x, y, &numContained );
+            int *contained = NULL;
 
+            if( chunk[cI] > 0 && getObject( chunk[cI] )->numSlots > 0 ) {
+                contained = getContained( x, y, &numContained );
+                }
+            
             if( contained != NULL ) {
                 containedStackSizes[cI] = numContained;
                 containedStacks[cI] = contained;
