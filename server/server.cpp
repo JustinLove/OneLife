@@ -3689,7 +3689,7 @@ int processLoggedInPlayer( Socket *inSock,
         int maxPlayers = 
             SettingsManager::getIntSetting( "maxPlayers", 200 );
 
-        if( tutorialCount > maxPlayers * 2 ) {
+        if( tutorialCount > maxPlayers ) {
             // wrap back to 0 so we don't keep getting farther
             // and farther away on map if server runs for a long time.
 
@@ -5267,7 +5267,7 @@ int main() {
     
 
     initLifeLog();
-    initBackup();
+    //initBackup();
     
     initPlayerStats();
     initLineageLog();
@@ -5372,7 +5372,7 @@ int main() {
         apocalypseStep();
         monumentStep();
         
-        checkBackup();
+        //checkBackup();
 
         stepFoodLog();
         stepFailureLog();

@@ -65,13 +65,12 @@ typedef unsigned __int64 uint64_t;
 
 
 // pick a version of the hash based on 32- or 64-bit environment
-#ifdef ENVIRONMENT32
-#define MurmurHash64 MurmurHash64B
-#else
+
+
+
+#ifdef ENVIRONMENT64
+
 #define MurmurHash64 MurmurHash64A
-#endif
-
-
 
 //-----------------------------------------------------------------------------
 // MurmurHash2, 64-bit versions, by Austin Appleby
@@ -81,7 +80,7 @@ typedef unsigned __int64 uint64_t;
 
 // 64-bit hash for 64-bit platforms
 
-uint64_t MurmurHash64A ( const void * key, int len, uint64_t seed )
+static uint64_t MurmurHash64A ( const void * key, int len, uint64_t seed )
 {
   const uint64_t m = BIG_CONSTANT(0xc6a4a7935bd1e995);
   const int r = 47;
@@ -125,9 +124,18 @@ uint64_t MurmurHash64A ( const void * key, int len, uint64_t seed )
 } 
 
 
+
+
+
+
+#else
+
+#define MurmurHash64 MurmurHash64B
+
+
 // 64-bit hash for 32-bit platforms
 
-uint64_t MurmurHash64B ( const void * key, int len, uint64_t seed )
+static uint64_t MurmurHash64B ( const void * key, int len, uint64_t seed )
 {
   const uint32_t m = 0x5bd1e995;
   const int r = 24;
@@ -178,3 +186,5 @@ uint64_t MurmurHash64B ( const void * key, int len, uint64_t seed )
   return h;
 } 
 
+
+#endif

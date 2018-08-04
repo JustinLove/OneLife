@@ -17,7 +17,7 @@
 
 #include "murmurhash2_64.cpp"
 
-
+/*
 // djb2 hash function
 static uint64_t djb2( const void *inB, unsigned int inLen ) {
     uint64_t hash = 5381;
@@ -26,6 +26,7 @@ static uint64_t djb2( const void *inB, unsigned int inLen ) {
         }
     return hash;
     }
+*/
 
 // function used here must have the following signature:
 // static uint64_t LINEARDB_hash( const void *inB, unsigned int inLen );
@@ -1014,6 +1015,65 @@ int LINEARDB_Iterator_next( LINEARDB_Iterator *inDBi,
             inDBi->currentRunLength = 0;
             }
         }
+    }
+
+
+
+
+unsigned int LINEARDB_getCurrentSize( LINEARDB *inDB ) {
+    return inDB->hashTableSizeB;
+    }
+
+
+
+unsigned int LINEARDB_getNumRecords( LINEARDB *inDB ) {
+    return inDB->numRecords;
+    }
+
+
+
+
+unsigned int LINEARDB_getShrinkSize( LINEARDB *inDB,
+                                     unsigned int inNewNumRecords ) {
+
+    unsigned int curSize = inDB->hashTableSizeA;
+    if( inDB->hashTableSizeA != inDB->hashTableSizeB ) {
+        // use doubled size as cur size
+        // it's big enough to contain current record load without
+        // violating max load factor
+        curSize *= 2;
+        }
+    
+    
+    if( inNewNumRecords >= curSize ) {
+        // can't shrink
+        return curSize;
+        }
+    
+
+    unsigned int minSize = lrint( ceil( inNewNumRecords / inDB->maxLoad ) );
+    
+    
+
+    // power of 2 that divides curSize and produces new size that is 
+    // large enough for minSize
+    unsigned int divisor = 1;
+    
+    while( true ) {
+        unsigned int newDivisor = divisor * 2;
+        
+        if( curSize % newDivisor == 0 &&
+            curSize / newDivisor >= minSize ) {
+            
+            divisor = newDivisor;
+            }
+        else {
+            // divisor as large as it can be
+            break;
+            }
+        }
+    
+    return curSize / divisor;
     }
 
 

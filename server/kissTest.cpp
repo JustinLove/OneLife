@@ -3,6 +3,9 @@
 #include "kissdb.h"
 #include "stackdb.h"
 #include "lineardb.h"
+#include "lineardb2.h"
+#include "lineardb3.h"
+
 #include "dbCommon.h"
 #include "minorGems/system/Time.h"
 
@@ -12,7 +15,8 @@
 #include "minorGems/util/random/CustomRandomSource.h"
 
 
-#define TABLE_SIZE 800000
+//#define TABLE_SIZE 800000
+#define TABLE_SIZE 100000
 
 //#define INSERT_SIZE 15000000
 //#define INSERT_SIZE 2000000
@@ -27,12 +31,15 @@
 
 //#define USE_KISSDB
 //#define USE_STACKDB
-#define USE_LINEARDB
+//#define USE_LINEARDB
+//#define USE_LINEARDB2
+#define USE_LINEARDB3
 
 
 
 #ifdef USE_KISSDB
 
+#define DB_name "KissDB"
 #define DB KISSDB
 #define DB_open KISSDB_open
 #define DB_close KISSDB_close
@@ -50,6 +57,7 @@
 
 #ifdef USE_STACKDB
 
+#define DB_name "StackDB"
 #define DB STACKDB
 #define DB_open STACKDB_open
 #define DB_close STACKDB_close
@@ -68,6 +76,7 @@
 
 #ifdef USE_LINEARDB
 
+#define DB_name "LinearDB"
 #define DB LINEARDB
 #define DB_open LINEARDB_open
 #define DB_close LINEARDB_close
@@ -79,6 +88,44 @@
 #define DB_Iterator_init  LINEARDB_Iterator_init
 #define DB_Iterator_next  LINEARDB_Iterator_next
 #define DB_maxStack db.maxProbeDepth
+
+#endif
+
+
+
+#ifdef USE_LINEARDB2
+
+#define DB_name "LinearDB2"
+#define DB LINEARDB2
+#define DB_open LINEARDB2_open
+#define DB_close LINEARDB2_close
+#define DB_get LINEARDB2_get
+#define DB_put LINEARDB2_put
+// linear db has no put_new
+#define DB_put_new LINEARDB2_put
+#define DB_Iterator  LINEARDB2_Iterator
+#define DB_Iterator_init  LINEARDB2_Iterator_init
+#define DB_Iterator_next  LINEARDB2_Iterator_next
+#define DB_maxStack db.maxOverflowDepth
+
+#endif
+
+
+
+#ifdef USE_LINEARDB3
+
+#define DB_name "LinearDB3"
+#define DB LINEARDB3
+#define DB_open LINEARDB3_open
+#define DB_close LINEARDB3_close
+#define DB_get LINEARDB3_get
+#define DB_put LINEARDB3_put
+// linear db has no put_new
+#define DB_put_new LINEARDB3_put
+#define DB_Iterator  LINEARDB3_Iterator
+#define DB_Iterator_init  LINEARDB3_Iterator_init
+#define DB_Iterator_next  LINEARDB3_Iterator_next
+#define DB_maxStack db.maxOverflowDepth
 
 #endif
 
@@ -140,7 +187,8 @@ unsigned char key[16];
 unsigned char value[4];
 
 
-void iterateValues() {
+// returns num values
+unsigned int iterateValues() {
     DB_Iterator dbi;
 
     double startTime = Time::getCurrentTime();
@@ -148,7 +196,7 @@ void iterateValues() {
     DB_Iterator_init( &db, &dbi );
     
     
-    int count = 0;
+    unsigned int count = 0;
     int checksum = 0;
     while( DB_Iterator_next( &dbi, key, value ) > 0 ) {
         count++;
@@ -162,6 +210,8 @@ void iterateValues() {
 
 
     printf( "Max bin depth = %d\n", DB_maxStack );
+    
+    return count;
     }
 
 
@@ -169,7 +219,10 @@ void iterateValues() {
 
 
 int main() {
-
+    printf( "Starting test for database %s\n", DB_name );
+    printf( "TableSize: %d, InsertSize: %d, RunSize: %d\n", 
+            TABLE_SIZE, INSERT_SIZE, NUM_RUNS );
+    
     getMallocDelta();
     
     double startTime = Time::getCurrentTime();
@@ -223,8 +276,12 @@ int main() {
     
     intQuadToKey( testX, testY, 0, 0, key );
 
-    DB_put_new( &db, key, value );
+    error = DB_put_new( &db, key, value );
 
+    if( error != 0 ) {
+        printf( "DB_put_new failed\n" );
+        return 1;
+        }
 
     int result = DB_get( &db, key, value );
     if( result == 0 ) {
@@ -248,10 +305,10 @@ int main() {
 
 
     int insertCount = 0;
-    for( int x=0; x<num; x++ ) {
-        for( int y=0; y<num; y++ ) {
-            for( int s=0; s<num; s++ ) {
-                for( int b=0; b<num; b++ ) {
+    for( int x=0; x<num && insertCount < INSERT_SIZE; x++ ) {
+        for( int y=0; y<num && insertCount < INSERT_SIZE; y++ ) {
+            for( int s=0; s<num && insertCount < INSERT_SIZE; s++ ) {
+                for( int b=0; b<num && insertCount < INSERT_SIZE; b++ ) {
             
                     insertCount++;
             
@@ -260,17 +317,36 @@ int main() {
                     
                     //printf( "Inserting %d,%d\n", x, y );
             
-                    DB_put_new( &db, key, value );
+                    error = DB_put_new( &db, key, value );
+                    if( error != 0 ) {
+                        printf( "DB_put_new failed\n" );
+                        return 1;
+                        }
                     }
                 }
             }
         }
-    
+
+    /*
+#ifdef USE_LINEARDB
+    if( db.numTableExpands > 0 ) {
+        printf( "%llu cells read on average per table expand (%llu expands), "
+                "worst read = %llu\n",
+                db.cellsReadOnTableExpand / db.numTableExpands, 
+                db.numTableExpands, db.worstCellsReadOnTableExpand );
+        printf( "%llu cells moved on average per table expand (%llu expands), "
+                "worst moved = %llu\n",
+                db.cellsMovedOnTableExpand / db.numTableExpands, 
+                db.numTableExpands, db.worstCellsMovedOnTableExpand );
+        }
+#endif
+    */
     printf( "Inserted %d\n", insertCount );
 
     printf( "Inserts used %d bytes, took %f sec\n", getMallocDelta(),
             Time::getCurrentTime() - startTime );
-
+    printf( "After insert, max stack depth = %d\n", DB_maxStack );
+    
 
     maybeFlush();
     
@@ -300,6 +376,10 @@ int main() {
                 int v = valueToInt( value );
                 checksum += v;
                 numHits++;
+                }
+            else if( result == -1 ) {
+                printf( "DB_get failed\n" );
+                return 1;
                 }
             }
         }
@@ -340,6 +420,10 @@ int main() {
                             checksum += v;
                             numHits++;
                             }
+                        else if( result == -1 ) {
+                            printf( "DB_get failed\n" );
+                            return 1;
+                            }
                         }
                     }
                 }
@@ -378,6 +462,10 @@ int main() {
             if( result == 0 ) {
                 numHits++;
                 }
+            else if( result == -1 ) {
+                printf( "DB_get failed\n" );
+                return 1;
+                }
             }
         }
     
@@ -412,6 +500,10 @@ int main() {
             if( result == 0 ) {
                 numHits++;
                 }
+            else if( result == -1 ) {
+                printf( "DB_get failed\n" );
+                return 1;
+                }
             }
         }
     
@@ -435,13 +527,18 @@ int main() {
 
         for( int i=0; i<lookupCount; i++ ) {
             // these don't exist
-            int x = runSource.getRandomBoundedInt( num + 10, num + num );
+            int x = runSource.getRandomBoundedInt( num, num + num );
             int y = runSource.getRandomBoundedInt( 0, num-1 );
             int s = runSource.getRandomBoundedInt( 0, num-1 );
             int b = runSource.getRandomBoundedInt( 0, num-1 );
             intQuadToKey( x, y, s, b, key );
             intToValue( x + y + s + b, value );
-            DB_put( &db, key, value );
+            int error = DB_put( &db, key, value );
+            
+            if( error == -1 ) {
+                printf( "DB_put failed\n" );
+                return 1;
+                }
             }
         }
     
@@ -457,7 +554,62 @@ int main() {
 
 
     
-    iterateValues();
+    unsigned int numValues = iterateValues();
+
+
+#ifdef USE_LINEARDB
+
+    printf( "Base size of db is %d\n", db.hashTableSizeA );
+    printf( "Expanded size of db is %d\n", db.hashTableSizeB );
+
+    unsigned int shrinkSize = LINEARDB_getShrinkSize( &db, numValues );
+    
+    printf( "Optimal shrink size for %d values is %d\n", numValues,
+            shrinkSize );
+    
+
+    DB db2;
+    
+    error = DB_open( &db2, 
+                     "test2.db", 
+                     KISSDB_OPEN_MODE_RWCREAT,
+                     shrinkSize,
+                     //lrint( baseSize * 0.549382 ),
+                     16, // four ints,  x_center, y_center, s, b
+                     4 // one int
+                     );
+
+    maybeFlush();
+    
+    startTime = Time::getCurrentTime();
+    
+    DB_Iterator dbi;
+
+    DB_Iterator_init( &db, &dbi );
+    
+    
+    int count = 0;
+    while( DB_Iterator_next( &dbi, key, value ) > 0 ) {
+        count++;
+
+        error = DB_put_new( &db2, key, value );
+
+        if( error == -1 ) {
+            printf( "DB_put_new failed\n" );
+            return 1;
+            }
+        }
+    
+    
+    printf( "Iterated through db and inserted %d values into db2, \n", count );
+
+    printf( "Iterating/inserting used %d bytes, took %f sec\n", 
+            getMallocDelta(),
+            Time::getCurrentTime() - startTime );
+    
+    DB_close( &db2 );
+#endif
+
     
     DB_close( &db );
 
