@@ -92,7 +92,7 @@ static char mouseHeld = false;
 static char autoRun = false;
 
 static int minMouseDownFrames = 30;
-static int maxDoubleClickFrames = 20;
+static int maxDoubleClickFrames = 12;
 
 
 static int screenCenterPlayerOffsetX, screenCenterPlayerOffsetY;
