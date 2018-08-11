@@ -332,6 +332,7 @@ function ls_setupDatabase() {
             // age at time of death in years
             "age FLOAT UNSIGNED NOT NULL,".
             "name VARCHAR(254) NOT NULL,".
+            "INDEX( name ),".
             // 1 if male
             "male TINYINT UNSIGNED NOT NULL,".
             "last_words VARCHAR(63) NOT NULL,".
@@ -1429,7 +1430,14 @@ function ls_frontPage() {
         $filter = $emailFilter;
         }
     else if( $nameFilter != "" ) {
-        $filterClause = " WHERE lives.name LIKE '%$nameFilter%' ";
+        // name filter is used as prefix filter for speed
+        // there's no way to make a LIKE condition fast if there's a wild
+        // card as the first character of the pattern (the entire table
+        // needs to be scanned, and the index isn't used).
+        //
+        // A full-text index is another option, but probably overkill in
+        // this case.
+        $filterClause = " WHERE lives.name LIKE '$nameFilter%' ";
         $filter = $nameFilter;
         }
 

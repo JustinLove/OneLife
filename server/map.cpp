@@ -2053,11 +2053,34 @@ int cleanMap() {
 
 
 
-static void loadIntoMapFromFile( FILE *inFile, 
-                          int inOffsetX = 0, 
-                          int inOffsetY = 0 ) {
+// for large inserts, like tutorial map loads, we don't want to 
+// track individual map changes.
+static char skipTrackingMapChanges = false;
+
+
+
+
+// reads lines from inFile until EOF reached or inTimeLimitSec passes
+// leaves file pos at end of last line read, ready to read more lines
+// on future calls
+// returns true if there's more file to read, or false if end of file reached
+static char loadIntoMapFromFile( FILE *inFile, 
+                                 int inOffsetX = 0, 
+                                 int inOffsetY = 0,
+                                 double inTimeLimitSec = 0 ) {
+
+    skipTrackingMapChanges = true;
+    
+    
+    double startTime = Time::getCurrentTime();
+
+    char moreFileLeft = true;
+
     // break out when read fails
-    while( true ) {
+    // or if time limit passed
+    while( inTimeLimitSec == 0 || 
+           Time::getCurrentTime() < startTime + inTimeLimitSec ) {
+        
         TestMapRecord r;
                 
         char stringBuff[1000];
@@ -2068,6 +2091,7 @@ static void loadIntoMapFromFile( FILE *inFile,
                               stringBuff );
                 
         if( numRead != 5 ) {
+            moreFileLeft = false;
             break;
             }
         r.x += inOffsetX;
@@ -2140,12 +2164,16 @@ static void loadIntoMapFromFile( FILE *inFile,
             delete [] subContArray;
             }
         }
+
+    skipTrackingMapChanges = false;
+
+    return moreFileLeft;
     }
 
 
 
 
-void initMap() {
+char initMap() {
     initDBCaches();
     initBiomeCache();
 
@@ -2331,7 +2359,7 @@ void initMap() {
     
         if( error ) {
             AppLog::errorF( "Error %d opening look time KissDB", error );
-            return;
+            return false;
             }
     
 
@@ -2409,7 +2437,7 @@ void initMap() {
             if( error ) {
                 AppLog::errorF( 
                     "Error %d opening look time temp KissDB", error );
-                return;
+                return false;
                 }
             
 
@@ -2464,7 +2492,7 @@ void initMap() {
     
     if( error ) {
         AppLog::errorF( "Error %d opening look time KissDB", error );
-        return;
+        return false;
         }
     
     lookTimeDBOpen = true;
@@ -2509,7 +2537,7 @@ void initMap() {
     
     if( error ) {
         AppLog::errorF( "Error %d opening map KissDB", error );
-        return;
+        return false;
         }
     
     dbOpen = true;
@@ -2547,7 +2575,7 @@ void initMap() {
     
     if( error ) {
         AppLog::errorF( "Error %d opening map time KissDB", error );
-        return;
+        return false;
         }
     
     timeDBOpen = true;
@@ -2571,7 +2599,7 @@ void initMap() {
     
     if( error ) {
         AppLog::errorF( "Error %d opening biome KissDB", error );
-        return;
+        return false;
         }
     
     biomeDBOpen = true;
@@ -2625,7 +2653,7 @@ void initMap() {
     
     if( error ) {
         AppLog::errorF( "Error %d opening floor KissDB", error );
-        return;
+        return false;
         }
     
     floorDBOpen = true;
@@ -2644,7 +2672,7 @@ void initMap() {
     
     if( error ) {
         AppLog::errorF( "Error %d opening floor time KissDB", error );
-        return;
+        return false;
         }
     
     floorTimeDBOpen = true;
@@ -2668,7 +2696,7 @@ void initMap() {
     
     if( error ) {
         AppLog::errorF( "Error %d opening eve KissDB", error );
-        return;
+        return false;
         }
     
     eveDBOpen = true;
@@ -2821,6 +2849,8 @@ void initMap() {
     //outputMapImage();
 
     //outputBiomeFractals();
+
+    return true;
     }
 
 
@@ -3235,28 +3265,31 @@ static void dbPut( int inX, int inY, int inSlot, int inValue,
         }
     
 
-    // count all slot changes as changes, because we're storing
-    // time in a separate database now (so we don't need to worry
-    // about time changes being reported as map changes)
-    
-    char found = false;
-    for( int i=0; i<mapChangePosSinceLastStep.size(); i++ ) {
-            
-        ChangePosition *p = mapChangePosSinceLastStep.getElement( i );
+    if( ! skipTrackingMapChanges ) {
         
-        if( p->x == inX && p->y == inY ) {
-            found = true;
+        // count all slot changes as changes, because we're storing
+        // time in a separate database now (so we don't need to worry
+        // about time changes being reported as map changes)
+        
+        char found = false;
+        for( int i=0; i<mapChangePosSinceLastStep.size(); i++ ) {
             
-            // update it
-            p->responsiblePlayerID = currentResponsiblePlayer;
-            break;
+            ChangePosition *p = mapChangePosSinceLastStep.getElement( i );
+            
+            if( p->x == inX && p->y == inY ) {
+                found = true;
+                
+                // update it
+                p->responsiblePlayerID = currentResponsiblePlayer;
+                break;
+                }
             }
-        }
         
-    if( ! found ) {
-        ChangePosition p = { inX, inY, false, currentResponsiblePlayer,
-                             0, 0, 0.0 };
-        mapChangePosSinceLastStep.push_back( p );
+        if( ! found ) {
+            ChangePosition p = { inX, inY, false, currentResponsiblePlayer,
+                                 0, 0, 0.0 };
+            mapChangePosSinceLastStep.push_back( p );
+            }
         }
     
     
@@ -3325,24 +3358,28 @@ static void dbTimePut( int inX, int inY, int inSlot, timeSec_t inTime,
 
 static void dbFloorPut( int inX, int inY, int inValue ) {
     
-    char found = false;
-    for( int i=0; i<mapChangePosSinceLastStep.size(); i++ ) {
+
+    if( ! skipTrackingMapChanges ) {
         
-        ChangePosition *p = mapChangePosSinceLastStep.getElement( i );
-        
-        if( p->x == inX && p->y == inY ) {
-            found = true;
+        char found = false;
+        for( int i=0; i<mapChangePosSinceLastStep.size(); i++ ) {
             
-            // update it
-            p->responsiblePlayerID = currentResponsiblePlayer;
-            break;
+            ChangePosition *p = mapChangePosSinceLastStep.getElement( i );
+            
+            if( p->x == inX && p->y == inY ) {
+                found = true;
+                
+                // update it
+                p->responsiblePlayerID = currentResponsiblePlayer;
+                break;
+                }
             }
-        }
         
-    if( ! found ) {
-        ChangePosition p = { inX, inY, false, currentResponsiblePlayer,
-                             0, 0, 0.0 };
-        mapChangePosSinceLastStep.push_back( p );
+        if( ! found ) {
+            ChangePosition p = { inX, inY, false, currentResponsiblePlayer,
+                                 0, 0, 0.0 };
+            mapChangePosSinceLastStep.push_back( p );
+            }
         }
     
     
@@ -4494,7 +4531,7 @@ void lookAtRegion( int inXStart, int inYStart, int inXEnd, int inYEnd ) {
                         *oldLookTime = currentTime;
                         }            
 
-                    for( int s=s; s<= contRec->maxSubSlots; s++ ) {
+                    for( int s=1; s<= contRec->maxSubSlots; s++ ) {
                         
                         oldLookTime =
                             liveDecayRecordLastLookTimeHashTable.lookupPointer( 
@@ -6042,9 +6079,13 @@ void mapEveDeath( char *inEmail, double inAge ) {
 
 
 
-char loadTutorial( const char *inMapFileName, int inX, int inY ) {
-    double startTime = Time::getCurrentTime();
-    
+
+static unsigned int nextLoadID = 0;
+
+
+char loadTutorialStart( TutorialLoadProgress *inTutorialLoad, 
+                        const char *inMapFileName, int inX, int inY ) {
+
     File tutorialFolder( NULL, "tutorialMaps" );
     
     char returnVal = false;
@@ -6059,8 +6100,14 @@ char loadTutorial( const char *inMapFileName, int inX, int inY ) {
             FILE *file = fopen( fileName, "r" );
 
             if( file != NULL ) {
-                loadIntoMapFromFile( file, inX, inY );
-                fclose( file );
+                
+                inTutorialLoad->uniqueLoadID = nextLoadID++;
+                inTutorialLoad->file = file;
+                inTutorialLoad->x = inX;
+                inTutorialLoad->y = inY;
+                inTutorialLoad->startTime = Time::getCurrentTime();
+                inTutorialLoad->stepCount = 0;
+                
                 returnVal = true;
                 }
             
@@ -6069,11 +6116,32 @@ char loadTutorial( const char *inMapFileName, int inX, int inY ) {
         delete mapFile;
         }
     
-    printf( "Loading tutorial took %f sec\n", 
-            Time::getCurrentTime() - startTime );
-    
     return returnVal;
     }
 
+
+
+
+char loadTutorialStep( TutorialLoadProgress *inTutorialLoad,
+                       double inTimeLimitSec ) {
+
+    if( inTutorialLoad->file == NULL ) {
+        // none left
+        return false;
+        }
+
+    char moreLeft = loadIntoMapFromFile( inTutorialLoad->file, 
+                                         inTutorialLoad->x, inTutorialLoad->y,
+                                         inTimeLimitSec );
+
+    inTutorialLoad->stepCount++;
+    
+
+    if( ! moreLeft ) {
+        fclose( inTutorialLoad->file );
+        inTutorialLoad->file = NULL;
+        }
+    return moreLeft;
+    }
 
 

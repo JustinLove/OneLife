@@ -74,6 +74,35 @@ Server Fixes
   takes 10 seconds on server1.  These map backups have never been needed and
   take up substantial disk space.
 
+--LinearDB3 is in place.  Inserts are much faster.  Other operations are faster
+  than any previous database engine.
+
+--Profiler found 5M+ vector operations happening for each tutorial map insert
+  (because we're checking for map changes).  Disabled map change tracking
+  during tutorial map insert.  This could cause some strange behavior if an
+  escaped tutorial player walks into a new player's tutorial area at the moment
+  of loading, but there's going to be strange behavior there no matter what.
+
+--Split tutorial map loading up into 5-ms steps that are interleaved with other
+  server processing steps.  Server no longer stalls for 1+ second while a
+  tutorial map loads into a full database.  Tutorial players may have to wait
+  a tiny bit longer, but that's okay.
+
+--Index added to name colum of lineage server lives database to make name
+  searches faster.
+
+--Lineage server now only supports name prefixes in character name searches
+  (so 'Jon' matches 'Jonathan Lucky' but 'Lucky' does not match it).  Turned
+  out that full wildcard searches involved a full table scan and had gotten
+  intolerably slow, even after the index for names was added.
+
+--Player cap up to 200 on all servers, preparing to roll out new lineardb3 to
+  all.
+
+--Fixed major high CPU spike issue due to uninitialized variable.
+  Thanks Jincheng L.
+
+
 
 
 Version 126    2018-July-18

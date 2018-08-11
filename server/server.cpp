@@ -211,6 +211,10 @@ typedef struct LiveObject {
         char isEve;        
 
         char isTutorial;
+        
+        // used to track incremental tutorial map loading
+        TutorialLoadProgress tutorialLoad;
+
 
         GridPos birthPos;
 
@@ -426,6 +430,7 @@ typedef struct LiveObject {
 
 
 SimpleVector<LiveObject> players;
+SimpleVector<LiveObject> tutorialLoadingPlayers;
 
 
 
@@ -808,6 +813,13 @@ void quitCleanup() {
             }
         list->deleteAll();
         }
+    
+    // add these to players to clean them up togeter
+    for( int i=0; i<tutorialLoadingPlayers.size(); i++ ) {
+        LiveObject nextPlayer = tutorialLoadingPlayers.getElementDirect( i );
+        players.push_back( nextPlayer );
+        }
+    tutorialLoadingPlayers.deleteAll();
     
 
 
@@ -3680,7 +3692,8 @@ int processLoggedInPlayer( Socket *inSock,
 
         char *mapFileName = autoSprintf( "tutorial%d.txt", inTutorialNumber );
         
-        placed = loadTutorial( mapFileName, startX, startY );
+        placed = loadTutorialStart( &( newObject.tutorialLoad ),
+                                    mapFileName, startX, startY );
         
         delete [] mapFileName;
 
@@ -3934,8 +3947,20 @@ int processLoggedInPlayer( Socket *inSock,
     // parent pointer possibly no longer valid after push_back, which
     // can resize the vector
     parent = NULL;
-    players.push_back( newObject );            
 
+
+    if( newObject.isTutorial ) {
+        AppLog::infoF( "New player %s pending tutorial load (tutorial=%d)",
+                       newObject.email,
+                       inTutorialNumber );
+
+        // holding bay for loading tutorial maps incrementally
+        tutorialLoadingPlayers.push_back( newObject );
+        }
+    else {
+        players.push_back( newObject );            
+        }
+    
 
     if( ! newObject.isTutorial )        
     logBirth( newObject.id,
@@ -4003,8 +4028,17 @@ static void processWaitingTwinConnection( FreshConnection inConnection ) {
                                            inConnection.tutorialNumber );
         
         
-        LiveObject *newPlayer = getLiveObject( newID );
+        LiveObject *newPlayer = NULL;
+
+        if( inConnection.tutorialNumber == 0 ) {
+            newPlayer = getLiveObject( newID );
+            }
+        else {
+            newPlayer = tutorialLoadingPlayers.getElement(
+                tutorialLoadingPlayers.size() - 1 );
+            }
         
+
         int parent = newPlayer->parentID;
         int displayID = newPlayer->displayID;
         GridPos playerPos = { newPlayer->xd, newPlayer->yd };
@@ -4026,10 +4060,25 @@ static void processWaitingTwinConnection( FreshConnection inConnection ) {
             processLoggedInPlayer( nextConnection->sock,
                                    nextConnection->sockBuffer,
                                    nextConnection->email,
-                                   nextConnection->tutorialNumber,
+                                   // ignore tutorial number of all but
+                                   // first player
+                                   0,
                                    parent,
                                    displayID,
                                    forcedEvePos );
+            
+            // just added is always last object in list
+            LiveObject newTwinPlayer = 
+                players.getElementDirect( players.size() - 1 );
+
+            if( newPlayer->isTutorial ) {
+                // force this one to wait for same tutorial map load
+                newTwinPlayer.tutorialLoad = newPlayer->tutorialLoad;
+
+                players.deleteElement( players.size() - 1 );
+                
+                tutorialLoadingPlayers.push_back( newTwinPlayer );
+                }
             }
         
 
@@ -5311,7 +5360,10 @@ int main() {
     initTriggers();
 
 
-    initMap();
+    if( initMap() != true ) {
+        // cannot continue after map init fails
+        return 1;
+        }
     
     
     int port = 
@@ -5548,6 +5600,12 @@ int main() {
             // we need to check for next message right away
             pollTimeout = 0;
             }
+
+        if( tutorialLoadingPlayers.size() > 0 ) {
+            // don't wait at all if there are tutorial maps to load
+            pollTimeout = 0;
+            }
+
 
         // we thus use zero CPU as long as no messages or new connections
         // come in, and only wake up when some timed action needs to be
@@ -6083,6 +6141,70 @@ int main() {
                 }
             }
     
+
+        // step tutorial map load for player at front of line
+        
+        // 5 ms
+        double timeLimit = 0.005;
+        
+        for( int i=0; i<tutorialLoadingPlayers.size(); i++ ) {
+            LiveObject *nextPlayer = tutorialLoadingPlayers.getElement( i );
+            
+            char moreLeft = loadTutorialStep( &( nextPlayer->tutorialLoad ),
+                                              timeLimit );
+            
+            if( moreLeft ) {
+                // only load one step from first in line
+                break;
+                }
+            
+            // first in line is done
+            
+            AppLog::infoF( "New player %s tutorial loaded after %u steps, "
+                           "%f total sec (loadID = %u )",
+                           nextPlayer->email,
+                           nextPlayer->tutorialLoad.stepCount,
+                           Time::getCurrentTime() - 
+                           nextPlayer->tutorialLoad.startTime,
+                           nextPlayer->tutorialLoad.uniqueLoadID );
+
+            // remove it and any twins
+            unsigned int uniqueID = nextPlayer->tutorialLoad.uniqueLoadID;
+            
+
+            players.push_back( *nextPlayer );
+
+            tutorialLoadingPlayers.deleteElement( i );
+            
+            LiveObject *twinPlayer = NULL;
+            
+            if( i < tutorialLoadingPlayers.size() ) {
+                twinPlayer = tutorialLoadingPlayers.getElement( i );
+                }
+            
+            while( twinPlayer != NULL && 
+                   twinPlayer->tutorialLoad.uniqueLoadID == uniqueID ) {
+                
+                AppLog::infoF( "Twin %s tutorial loaded too (loadID = %u )",
+                               twinPlayer->email,
+                               uniqueID );
+            
+                players.push_back( *twinPlayer );
+
+                tutorialLoadingPlayers.deleteElement( i );
+                
+                twinPlayer = NULL;
+                
+                if( i < tutorialLoadingPlayers.size() ) {
+                    twinPlayer = tutorialLoadingPlayers.getElement( i );
+                    }
+                }
+            break;
+            
+            }
+        
+
+
         
     
         someClientMessageReceived = false;

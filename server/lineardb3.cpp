@@ -507,7 +507,7 @@ int LINEARDB3_open(
         
         if( strcmp( magicBuffer, magicString ) != 0 ) {
             printf( "lineardb3 magic string '%s' not found at start of  "
-                    "file header\n", magicString );
+                    "file header in %s\n", magicString, inPath );
             return 1;
             }
         
@@ -522,7 +522,8 @@ int LINEARDB3_open(
         
         if( val32 != inKeySize ) {
             printf( "Requested lineardb3 key size of %u does not match "
-                    "size of %u in file header\n", inKeySize, val32 );
+                    "size of %u in file header in %s\n", inKeySize, val32,
+                    inPath );
             return 1;
             }
         
@@ -536,7 +537,8 @@ int LINEARDB3_open(
         
         if( val32 != inValueSize ) {
             printf( "Requested lineardb3 value size of %u does not match "
-                    "size of %u in file header\n", inValueSize, val32 );
+                    "size of %u in file header in %s\n", inValueSize, val32,
+                    inPath );
             return 1;
             }
         
@@ -555,12 +557,88 @@ int LINEARDB3_open(
         uint64_t numRecordsInFile = 
             ( fileSize - LINEARDB3_HEADER_SIZE ) / inDB->recordSizeBytes;
         
-        if( inDB->recordSizeBytes * numRecordsInFile + LINEARDB3_HEADER_SIZE
-            != fileSize ) {
+        uint64_t expectedSize =
+            inDB->recordSizeBytes * numRecordsInFile + LINEARDB3_HEADER_SIZE;
+        
+
+        if( expectedSize != fileSize ) {
             
-            printf( "Requested lineardb3 file does not contain a whole number "
-                    "of %d-byte records.\n", inDB->recordSizeBytes );
-            return 1;
+            printf( "Requested lineardb3 file %s does not contain a "
+                    "whole number of %d-byte records.  "
+                    "Assuming final record is garbage and truncating it.\n", 
+                    inPath, inDB->recordSizeBytes );
+        
+            char tempPath[200];
+            sprintf( tempPath, "%.190s%s", inPath, ".trunc" );
+
+            FILE *tempFile = fopen( tempPath, "wb" );
+            
+            if( tempFile == NULL ) {
+                printf( "Failed to open temp file %s for truncation\n",
+                        tempPath );
+                return 1;
+                }
+            
+            if( fseeko( inDB->file, 0, SEEK_SET ) ) {
+                return 1;
+                }
+            
+            unsigned char headerBuffer[ LINEARDB3_HEADER_SIZE ];
+            
+            int numRead = fread( headerBuffer, 
+                                 LINEARDB3_HEADER_SIZE, 1, inDB->file );
+            
+            if( numRead != 1 ) {
+                printf( "Failed to read header from lineardb3 file %s\n",
+                        inPath );
+                return 1;
+                }
+            int numWritten = fwrite( headerBuffer, 
+                                     LINEARDB3_HEADER_SIZE, 1, tempFile );
+            
+            if( numWritten != 1 ) {
+                printf( "Failed to write header to temp lineardb3 "
+                        "truncation file %s\n", tempPath );
+                return 1;
+                }
+                
+
+            for( uint64_t i=0; i<numRecordsInFile; i++ ) {
+                numRead = fread( inDB->recordBuffer, 
+                                 inDB->recordSizeBytes, 1, inDB->file );
+            
+                if( numRead != 1 ) {
+                    printf( "Failed to read record from lineardb3 file %s\n",
+                            inPath );
+                    return 1;
+                    }
+                
+                numWritten = fwrite( inDB->recordBuffer, 
+                                     inDB->recordSizeBytes, 1, tempFile );
+            
+                if( numWritten != 1 ) {
+                    printf( "Failed to record to temp lineardb3 "
+                            "truncation file %s\n", tempPath );
+                    return 1;
+                    }
+                }
+
+            fclose( inDB->file );
+            fclose( tempFile );
+            
+            if( rename( tempPath, inPath ) != 0 ) {
+                printf( "Failed overwrite lineardb3 file %s with "
+                        "truncation file %s\n", inPath, tempPath );
+                return 1;
+                }
+
+            inDB->file = fopen( inPath, "r+b" );
+
+            if( inDB->file == NULL ) {
+                printf( "Failed to re-open lineardb3 file %s after "
+                        "trunctation\n", inPath );
+                return 1;
+                }
             }
         
         
@@ -945,9 +1023,14 @@ static int LINEARDB3_considerFingerprintBucket( LINEARDB3 *inDB,
         if( !emptyRec ) {
             
             // read key to make sure it actually matches
-            if( fseeko( inDB->file, filePosRec, SEEK_SET ) ) {
-                return -1;
+            
+            // never seek unless we have to
+            if( ftello( inDB->file ) != (signed)filePosRec ) {
+                if( fseeko( inDB->file, filePosRec, SEEK_SET ) ) {
+                    return -1;
+                    }
                 }
+            
             int numRead = fread( inDB->recordBuffer, inDB->keySize, 1,
                                  inDB->file );
                 
@@ -1131,16 +1214,21 @@ int LINEARDB3_getOrPut( LINEARDB3 *inDB, const void *inKey, void *inOutValue,
                 newBucket->fileIndex[0] * 
                 inDB->recordSizeBytes;
 
-            // go to end of file
-            if( fseeko( inDB->file, 0, SEEK_END ) ) {
-                return -1;
+            // don't seek unless we have to
+            if( ftello( inDB->file ) != (signed)filePosRec ) {
+            
+                // go to end of file
+                if( fseeko( inDB->file, 0, SEEK_END ) ) {
+                    return -1;
+                    }
+            
+                // make sure it matches where we've documented that
+                // the record should go
+                if( ftello( inDB->file ) != (signed)filePosRec ) {
+                    return -1;
+                    }
                 }
             
-            // make sure it matches where we've documented that
-            // the record should go
-            if( ftello( inDB->file ) != (signed)filePosRec ) {
-                return -1;
-                }
                 
             int numWritten = fwrite( inKey, inDB->keySize, 1, inDB->file );
             
