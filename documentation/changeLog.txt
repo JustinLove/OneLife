@@ -3,6 +3,32 @@ This file only list changes to game code.  Changes to content can be found here:
 http://onehouronelife.com/updateLog.php
 
 
+Version 132    ???
+
+--Fixed scene editor animation speed of people holding speedMult objects.
+
+
+
+Version 130    2018-August-17
+
+--Fixed GUI layout spacing in scene editor.
+
+--Fixed glitch in moving objects that consume destination object (visual
+  duplication of objects) if client falls behind server moves.
+
+--Editor support for inverting scanned sprites (for making white smoke).
+
+--Support for certain sprite layers being drawn behind player (example:
+  tracks under cart).
+
+--Floors can have speed modifiers (roads make you move faster, for example),
+  but they are only applied by client and server if entire path is on the same
+  floor.
+
+--Auto-follow rideable floors (aka roads).
+
+
+
 
 Server Fixes
 
@@ -101,6 +127,27 @@ Server Fixes
 
 --Fixed major high CPU spike issue due to uninitialized variable.
   Thanks Jincheng L.
+
+--Fixed server crash due to a typo.
+
+--Fixed bug in adding transitions with a move distance.
+
+--Objects that move N/S/E/W keep moving even when out of view, permitting
+  long-distance rails to function.
+
+--Fixed potential c-standard violation in having same file fopen-ed multiple
+  times in parallel during tutorial map loading.
+
+--Fixed handling of transitions where object moves onto bare ground.
+
+--Apply bare ground transition, if any, when object blocked from moving.
+
+--NSEW moves never move farther than specified, even if ground object present.
+
+--Fixed a bug in the loop over possible spots to move to (don't need i=0).
+
+--Eve placement adjusted to bring Eves twice as close together as before.
+
 
 
 

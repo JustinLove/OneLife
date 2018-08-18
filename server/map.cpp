@@ -305,6 +305,14 @@ typedef struct LiveDecayRecord {
         // >0 indexs sub containers of object
         int subCont;
 
+        // the transition that will apply when this decay happens
+        // this allows us to avoid marking certain types of move decays
+        // as stale when not looked at in a while (all other types of decays
+        // go stale)
+        // Can be NULL if we don't care about the transition
+        // associated with this decay (for contained item decay, for example)
+        TransRecord *applicableTrans;
+
     } LiveDecayRecord;
 
 
@@ -3428,12 +3436,25 @@ void dbLookTimePut( int inX, int inY, timeSec_t inTime ) {
 
 
 
+// certain types of movement transitions should always be live
+// tracked, even when out of view (NSEW moves, for human-made traveling objects
+// for example)
+static char isDecayTransAlwaysLiveTracked( TransRecord *inTrans ) {
+    if( inTrans != NULL &&
+        inTrans->move >=4 && inTrans->move <= 7 ) {
+
+        return true;
+        }
+
+    return false;
+    }
 
 
 
 // slot is 0 for main map cell, or higher for container slots
 static void trackETA( int inX, int inY, int inSlot, timeSec_t inETA,
-                      int inSubCont = 0 ) {
+                      int inSubCont = 0, 
+                      TransRecord *inApplicableTrans = NULL ) {
     
     timeSec_t timeLeft = inETA - MAP_TIMESEC;
         
@@ -3444,7 +3465,8 @@ static void trackETA( int inX, int inY, int inSlot, timeSec_t inETA,
         // we'll deal with them when they ripen
         // (we check the true ETA stored in map before acting
         //   on one stored in this queue)
-        LiveDecayRecord r = { inX, inY, inSlot, inETA, inSubCont };
+        LiveDecayRecord r = { inX, inY, inSlot, inETA, inSubCont, 
+                              inApplicableTrans };
             
         char exists;
         timeSec_t existingETA =
@@ -3850,6 +3872,11 @@ int checkDecayObject( int inX, int inY, int inID ) {
                 
                 int tryRadius = 4;
 
+                if( t->move > 3 ) {
+                    // NSEW moves never go beyond their intended distance
+                    tryRadius = 0;
+                    }
+
                 // try again and again with smaller distances until we
                 // find an empty spot
                 while( newX == inX && newY == inY && tryDist > 0 ) {
@@ -3857,7 +3884,7 @@ int checkDecayObject( int inX, int inY, int inID ) {
                     // walk up to 4 steps past our dist in that direction,
                     // looking for non-blocking objects or an empty spot
                 
-                    for( int i=0; i<tryDist + tryRadius; i++ ) {
+                    for( int i=1; i<=tryDist + tryRadius; i++ ) {
                         int testX = lrint( inX + dir.x * i );
                         int testY = lrint( inY + dir.y * i );
                     
@@ -3876,11 +3903,25 @@ int checkDecayObject( int inX, int inY, int inID ) {
                                 trans = getPTrans( newID, oID );
                                 }
                             }
-                        
+                        else if( oID == 0 ) {
+                            // check for bare ground trans
+                            trans = getPTrans( inID, -1 );
+                            
+                            if( trans == NULL ) {
+                                // does trans exist for newID applied to
+                                // bare ground
+                                trans = getPTrans( newID, -1 );
+                                }
+                            }
+                            
+
+
                         if( i >= tryDist && oID == 0 ) {
-                            // found a spot for it to move
+                            // found a bare ground spot for it to move
                             newX = testX;
                             newY = testY;
+                            // keep any bare ground transition (or NULL)
+                            destTrans = trans;
                             break;
                             }
                         else if( i >= tryDist && trans != NULL ) {
@@ -3898,9 +3939,12 @@ int checkDecayObject( int inX, int inY, int inID ) {
                         }
                     
                     tryDist--;
-                    // 4 on first try, but then 1 on remaining tries to
-                    // avoid overlap with previous tries
-                    tryRadius = 1;
+                    
+                    if( tryRadius != 0 ) {
+                        // 4 on first try, but then 1 on remaining tries to
+                        // avoid overlap with previous tries
+                        tryRadius = 1;
+                        }
                     }
                 
                 
@@ -4169,6 +4213,21 @@ int checkDecayObject( int inX, int inY, int inID ) {
                             }
                         }
                     }
+                else {
+                    // failed to find a spot to move
+
+                    // default to applying bare-ground transition, if any
+                    TransRecord *trans = getPTrans( inID, -1 );
+                            
+                    if( trans == NULL ) {
+                        // does trans exist for newID applied to
+                        // bare ground
+                        trans = getPTrans( newID, -1 );
+                        }
+                    if( trans != NULL ) {
+                        newID = trans->newTarget;
+                        }
+                    }
                 }
             
                 
@@ -4229,7 +4288,7 @@ int checkDecayObject( int inX, int inY, int inID ) {
                     }
                 }            
 
-            setEtaDecay( newX, newY, mapETA );
+            setEtaDecay( newX, newY, mapETA, newDecayT );
             }
 
         }
@@ -4953,10 +5012,11 @@ void setMapObject( int inX, int inY, int inID ) {
 
 
 
-void setEtaDecay( int inX, int inY, timeSec_t inAbsoluteTimeInSeconds ) {
+void setEtaDecay( int inX, int inY, timeSec_t inAbsoluteTimeInSeconds,
+                  TransRecord *inApplicableTrans ) {
     dbTimePut( inX, inY, DECAY_SLOT, inAbsoluteTimeInSeconds );
     if( inAbsoluteTimeInSeconds != 0 ) {
-        trackETA( inX, inY, 0, inAbsoluteTimeInSeconds );
+        trackETA( inX, inY, 0, inAbsoluteTimeInSeconds, 0, inApplicableTrans );
         }
     }
 
@@ -5643,9 +5703,14 @@ void stepMap( SimpleVector<MapChangeRecord> *inMapChanges,
             if( storedFound ) {
 
                 if( MAP_TIMESEC - lastLookTime > 
-                    maxSecondsNoLookDecayTracking ) {
+                    maxSecondsNoLookDecayTracking 
+                    &&
+                    ! isDecayTransAlwaysLiveTracked( r.applicableTrans ) ) {
                     
                     // this cell or slot hasn't been looked at in too long
+                    // AND it's not a trans that's live tracked even when
+                    // not watched
+
                     // don't even apply this decay now
                     liveDecayRecordLastLookTimeHashTable.remove( 
                         r.x, r.y, r.slot, r.subCont );
@@ -6086,37 +6151,21 @@ static unsigned int nextLoadID = 0;
 char loadTutorialStart( TutorialLoadProgress *inTutorialLoad, 
                         const char *inMapFileName, int inX, int inY ) {
 
-    File tutorialFolder( NULL, "tutorialMaps" );
+    // don't open file yet, because we don't want to have the same
+    // file open in parallel
     
-    char returnVal = false;
+    // save info to open file on first step, which is called one player at a 
+    // time
+    inTutorialLoad->uniqueLoadID = nextLoadID++;
+    inTutorialLoad->fileOpened = false;
+    inTutorialLoad->file = NULL;
+    inTutorialLoad->mapFileName = stringDuplicate( inMapFileName );
+    inTutorialLoad->x = inX;
+    inTutorialLoad->y = inY;
+    inTutorialLoad->startTime = Time::getCurrentTime();
+    inTutorialLoad->stepCount = 0;
 
-    if( tutorialFolder.exists() && tutorialFolder.isDirectory() ) {
-        
-        File *mapFile = tutorialFolder.getChildFile( inMapFileName );
-        
-        if( mapFile->exists() &&  ! mapFile->isDirectory() ) {
-            char *fileName = mapFile->getFullFileName();
-            
-            FILE *file = fopen( fileName, "r" );
-
-            if( file != NULL ) {
-                
-                inTutorialLoad->uniqueLoadID = nextLoadID++;
-                inTutorialLoad->file = file;
-                inTutorialLoad->x = inX;
-                inTutorialLoad->y = inY;
-                inTutorialLoad->startTime = Time::getCurrentTime();
-                inTutorialLoad->stepCount = 0;
-                
-                returnVal = true;
-                }
-            
-            delete [] fileName;
-            }
-        delete mapFile;
-        }
-    
-    return returnVal;
+    return true;
     }
 
 
@@ -6124,6 +6173,45 @@ char loadTutorialStart( TutorialLoadProgress *inTutorialLoad,
 
 char loadTutorialStep( TutorialLoadProgress *inTutorialLoad,
                        double inTimeLimitSec ) {
+
+    if( ! inTutorialLoad->fileOpened ) {
+        // first step, open file
+        
+        char returnVal = false;
+        
+        // only try opening it once
+        inTutorialLoad->fileOpened = true;
+        
+        File tutorialFolder( NULL, "tutorialMaps" );
+
+        if( tutorialFolder.exists() && tutorialFolder.isDirectory() ) {
+        
+            File *mapFile = tutorialFolder.getChildFile( 
+                inTutorialLoad->mapFileName );
+            
+            if( mapFile->exists() &&  ! mapFile->isDirectory() ) {
+                char *fileName = mapFile->getFullFileName();
+                
+                FILE *file = fopen( fileName, "r" );
+                
+                if( file != NULL ) {
+                    inTutorialLoad->file = file;
+                    
+                    returnVal = true;
+                    }
+                
+                delete [] fileName;
+                }
+            delete mapFile;
+            }
+        
+        delete [] inTutorialLoad->mapFileName;
+        
+        return returnVal;
+        }
+    
+
+    // else file already open
 
     if( inTutorialLoad->file == NULL ) {
         // none left
