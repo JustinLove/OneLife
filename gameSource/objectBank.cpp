@@ -328,7 +328,26 @@ float initObjectBankStep() {
                 next++;
                             
                 r->description = stringDuplicate( lines[next] );
-                            
+                         
+
+                r->mayHaveMetadata = false;
+                
+                r->written = false;
+                r->writable = false;
+                
+                if( strstr( r->description, "&" ) != NULL ) {
+                    // some flags in name
+                    if( strstr( r->description, "&written" ) != NULL ) {
+                        r->written = true;
+                        r->mayHaveMetadata = true;
+                        }
+                    if( strstr( r->description, "&writable" ) != NULL ) {
+                        r->writable = true;
+                        r->mayHaveMetadata = true;
+                        }
+                    }
+                
+
                 next++;
                             
                 int contRead = 0;                            
@@ -1774,8 +1793,12 @@ void resaveAll() {
 
 
 
+#include "objectMetadata.h"
+
 
 ObjectRecord *getObject( int inID ) {
+    inID = extractObjectID( inID );
+    
     if( inID < mapSize ) {
         if( idMap[inID] != NULL ) {
             return idMap[inID];
@@ -4725,6 +4748,10 @@ int hideIDForClient( int inObjectID ) {
         if( o->isVariableDummy && o->isVariableHidden ) {
             // hide from client
             inObjectID = o->variableDummyParent;
+            }
+        else {
+            // this has any metadata stripped off
+            inObjectID = o->id;
             }
         }
     return inObjectID;

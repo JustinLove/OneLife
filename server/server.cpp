@@ -33,6 +33,7 @@
 #include "map.h"
 #include "../gameSource/transitionBank.h"
 #include "../gameSource/objectBank.h"
+#include "../gameSource/objectMetadata.h"
 #include "../gameSource/animationBank.h"
 #include "../gameSource/categoryBank.h"
 
@@ -2275,7 +2276,7 @@ static void setFreshEtaDecayForHeld( LiveObject *inPlayer ) {
         }
     
     // does newly-held object have a decay defined?
-    TransRecord *newDecayT = getTrans( -1, inPlayer->holdingID );
+    TransRecord *newDecayT = getMetaTrans( -1, inPlayer->holdingID );
                     
     if( newDecayT != NULL ) {
         inPlayer->holdingEtaDecay = 
@@ -2621,6 +2622,124 @@ GridPos findClosestEmptyMapSpot( int inX, int inY, int inMaxPointsToCheck,
 
 
 
+
+SimpleVector<char> newSpeech;
+SimpleVector<ChangePosition> newSpeechPos;
+
+char *isCurseNamingSay( char *inSaidString );
+
+
+static void makePlayerSay( LiveObject *inPlayer, char *inToSay) {    
+                        
+    if( inPlayer->lastSay != NULL ) {
+        delete [] inPlayer->lastSay;
+        inPlayer->lastSay = NULL;
+        }
+    inPlayer->lastSay = stringDuplicate( inToSay );
+                        
+
+    char isCurse = false;
+
+    char *cursedName = isCurseNamingSay( inToSay );
+                        
+    if( cursedName != NULL && 
+        strcmp( cursedName, "" ) != 0 ) {
+        
+        isCurse = cursePlayer( inPlayer->id,
+                               inPlayer->email,
+                               cursedName );
+        
+        if( isCurse ) {
+            
+            if( hasCurseToken( inPlayer->email ) ) {
+                inPlayer->curseTokenCount = 1;
+                }
+            else {
+                inPlayer->curseTokenCount = 0;
+                }
+            inPlayer->curseTokenUpdate = true;
+            }
+        }
+
+
+    int curseFlag = 0;
+    if( isCurse ) {
+        curseFlag = 1;
+        }
+
+    
+    char *line = autoSprintf( "%d/%d %s\n", 
+                              inPlayer->id,
+                              curseFlag,
+                              inToSay );
+                        
+    newSpeech.appendElementString( line );
+                        
+    delete [] line;
+                        
+
+                        
+    ChangePosition p = { inPlayer->xd, inPlayer->yd, false };
+                        
+    // if held, speech happens where held
+    if( inPlayer->heldByOther ) {
+        LiveObject *holdingPlayer = 
+            getLiveObject( inPlayer->heldByOtherID );
+                
+        if( holdingPlayer != NULL ) {
+            p.x = holdingPlayer->xd;
+            p.y = holdingPlayer->yd;
+            }
+        }
+
+    newSpeechPos.push_back( p );
+    }
+
+
+
+static void holdingSomethingNew( LiveObject *inPlayer, 
+                                 int inOldHoldingID = 0 ) {
+    if( inPlayer->holdingID > 0 ) {
+       
+        ObjectRecord *o = getObject( inPlayer->holdingID );
+        
+        ObjectRecord *oldO = NULL;
+        if( inOldHoldingID > 0 ) {
+            oldO = getObject( inOldHoldingID );
+            }
+        
+        if( o->written &&
+            ( oldO == NULL ||
+              ! ( oldO->written || oldO->writable ) ) ) {
+            
+            char metaData[ MAP_METADATA_LENGTH ];
+            char found = getMetadata( inPlayer->holdingID, 
+                                      (unsigned char*)metaData );
+
+            if( found ) {
+                // read what they picked up, subject to limit
+                
+                unsigned int sayLimit = getSayLimit( inPlayer );
+                        
+                if( computeAge( inPlayer ) < 10 &&
+                    strlen( metaData ) > sayLimit ) {
+                    // truncate with ...
+                    metaData[ sayLimit ] = '.';
+                    metaData[ sayLimit + 1 ] = '.';
+                    metaData[ sayLimit + 2 ] = '.';
+                    metaData[ sayLimit + 3 ] = '\0';
+                    }
+                char *quotedPhrase = autoSprintf( ":%s", metaData );
+                makePlayerSay( inPlayer, quotedPhrase );
+                delete [] quotedPhrase;
+                }
+            }
+        }
+    }
+
+
+
+
 // drops an object held by a player at target x,y location
 // doesn't check for adjacency (so works for thrown drops too)
 // if target spot blocked, will search for empty spot to throw object into
@@ -2656,6 +2775,7 @@ void handleDrop( int inX, int inY, LiveObject *inDroppingPlayer,
             
             inDroppingPlayer->holdingID = 
                 bareTrans->newTarget;
+            holdingSomethingNew( inDroppingPlayer, oldHoldingID );
 
             setFreshEtaDecayForHeld( inDroppingPlayer );
             }
@@ -3055,7 +3175,7 @@ static UpdateRecord getUpdateRecord(
             id = objectRecordToID( cObj );
             }
         
-        char *idString = autoSprintf( "%d", id );
+        char *idString = autoSprintf( "%d", hideIDForClient( id ) );
         
         clothingListBuffer.appendElementString( idString );
         delete [] idString;
@@ -3066,7 +3186,10 @@ static UpdateRecord getUpdateRecord(
                 char *contString = 
                     autoSprintf( 
                         ",%d", 
-                        inPlayer->clothingContained[c].getElementDirect( cc ) );
+                        hideIDForClient( 
+                            inPlayer->
+                            clothingContained[c].getElementDirect( cc ) ) );
+                
                 clothingListBuffer.appendElementString( contString );
                 delete [] contString;
                 }
@@ -3107,7 +3230,7 @@ static UpdateRecord getUpdateRecord(
         inPlayer->heldOriginValid,
         //inPlayer->heldOriginX - inRelativeToPos.x,
         //inPlayer->heldOriginY - inRelativeToPos.y,
-        inPlayer->heldTransitionSourceID,
+        hideIDForClient( inPlayer->heldTransitionSourceID ),
         inPlayer->heat,
         posString,
         computeAge( inPlayer ),
@@ -3115,7 +3238,7 @@ static UpdateRecord getUpdateRecord(
         computeMoveSpeed( inPlayer ),
         clothingList,
         inPlayer->justAte,
-        inPlayer->justAteID,
+        hideIDForClient( inPlayer->justAteID ),
         inPlayer->responsiblePlayerID,
         heldYum,
         deathReason );
@@ -4481,7 +4604,9 @@ char removeFromContainerToHold( LiveObject *inPlayer,
                     removeContained( 
                         inContX, inContY, inSlotNumber,
                         &( inPlayer->holdingEtaDecay ) );
-                        
+                
+                holdingSomethingNew( inPlayer );
+                
                 setResponsiblePlayer( -1 );
 
                 if( inPlayer->holdingID < 0 ) {
@@ -4671,7 +4796,8 @@ static void handleHoldingChange( LiveObject *inPlayer, int inNewHeldID ) {
         }
 
     nextPlayer->holdingID = inNewHeldID;
-    
+    holdingSomethingNew( inPlayer, oldHolding );
+
     if( newHeldSlots > 0 && 
         oldHolding != 0 ) {
                                         
@@ -4691,8 +4817,8 @@ static void handleHoldingChange( LiveObject *inPlayer, int inNewHeldID ) {
         // if they both decay to the same thing in the same time
         if( oldHolding > 0 && inNewHeldID > 0 ) {
             
-            TransRecord *oldDecayT = getTrans( -1, oldHolding );
-            TransRecord *newDecayT = getTrans( -1, inNewHeldID );
+            TransRecord *oldDecayT = getMetaTrans( -1, oldHolding );
+            TransRecord *newDecayT = getMetaTrans( -1, inNewHeldID );
             
             if( oldDecayT != NULL && newDecayT != NULL ) {
                 if( oldDecayT->autoDecaySeconds == newDecayT->autoDecaySeconds
@@ -4805,17 +4931,25 @@ void readPhrases( const char *inSettingsName,
 
 // returns pointer to name in string
 char *isNamingSay( char *inSaidString, SimpleVector<char*> *inPhraseList ) {
+    char *saidString = inSaidString;
+    
+    if( saidString[0] == ':' ) {
+        // skip first :
+        // reading written phrase aloud has same effect as saying it
+        saidString = &( saidString[1] );
+        }
+    
     for( int i=0; i<inPhraseList->size(); i++ ) {
         char *testString = inPhraseList->getElementDirect( i );
         
-        if( strstr( inSaidString, testString ) == inSaidString ) {
+        if( strstr( inSaidString, testString ) == saidString ) {
             // hit
             int phraseLen = strlen( testString );
             // skip spaces after
-            while( inSaidString[ phraseLen ] == ' ' ) {
+            while( saidString[ phraseLen ] == ' ' ) {
                 phraseLen++;
                 }
-            return &( inSaidString[ phraseLen ] );
+            return &( saidString[ phraseLen ] );
             }
         }
     return NULL;
@@ -5120,7 +5254,8 @@ void monumentStep() {
                                              nextPlayer->birthPos.x, 
                                              monumentCallY -
                                              nextPlayer->birthPos.y,
-                                             monumentCallID );
+                                             hideIDForClient( 
+                                                 monumentCallID ) );
                 int messageLength = strlen( message );
 
 
@@ -6287,8 +6422,6 @@ int main() {
         SimpleVector<MapChangeRecord> mapChanges;
         SimpleVector<ChangePosition> mapChangesPos;
         
-        SimpleVector<char> newSpeech;
-        SimpleVector<ChangePosition> newSpeechPos;
 
         
         timeSec_t curLookTime = Time::timeSec();
@@ -6399,6 +6532,8 @@ int main() {
                                 }
                             nextPlayer->holdingID = 
                                 r->newTarget;
+                            holdingSomethingNew( nextPlayer );
+                            
                             nextPlayer->holdingWound = true;
                                             
                             playerIndicesToSendUpdatesAbout.
@@ -7072,29 +7207,7 @@ int main() {
                                 }
                             }
                         
-                        char isCurse = false;
 
-                        char *cursedName = isCurseNamingSay( m.saidText );
-                        
-                        if( cursedName != NULL && 
-                            strcmp( cursedName, "" ) != 0 ) {
-                            
-                            isCurse = cursePlayer( nextPlayer->id,
-                                                   nextPlayer->email,
-                                                   cursedName );
-                            
-                            if( isCurse ) {
-                                
-                                if( hasCurseToken( nextPlayer->email ) ) {
-                                    nextPlayer->curseTokenCount = 1;
-                                    }
-                                else {
-                                    nextPlayer->curseTokenCount = 0;
-                                    }
-                                nextPlayer->curseTokenUpdate = true;
-                                }
-                            }
-                        
 
                         
                         if( nextPlayer->isEve && nextPlayer->name == NULL ) {
@@ -7254,47 +7367,47 @@ int main() {
                                             closestOther->id ) );
                                     }
                                 }
-                            }
-                        
-                        
-                        if( nextPlayer->lastSay != NULL ) {
-                            delete [] nextPlayer->lastSay;
-                            nextPlayer->lastSay = NULL;
-                            }
-                        nextPlayer->lastSay = stringDuplicate( m.saidText );
-                        
-                        int curseFlag = 0;
-                        if( isCurse ) {
-                            curseFlag = 1;
-                            }
-                        
-                        char *line = autoSprintf( "%d/%d %s\n", 
-                                                  nextPlayer->id,
-                                                  curseFlag,
-                                                  m.saidText );
-                        
-                        newSpeech.appendElementString( line );
-                        
-                        delete [] line;
-                        
 
-                        
-                        ChangePosition p = { nextPlayer->xd, nextPlayer->yd, 
-                                             false };
-                        
-                        // if held, speech happens where held
-                        if( nextPlayer->heldByOther ) {
-                            LiveObject *holdingPlayer = 
-                                getLiveObject( nextPlayer->heldByOtherID );
-                
-                            if( holdingPlayer != NULL ) {
-                                p.x = holdingPlayer->xd;
-                                p.y = holdingPlayer->yd;
-                                }
+                            // also check if we're holding something writable
+                            unsigned char metaData[ MAP_METADATA_LENGTH ];
+                            int len = strlen( m.saidText );
+                            
+                            if( nextPlayer->holdingID > 0 &&
+                                len < MAP_METADATA_LENGTH &&
+                                getObject( 
+                                    nextPlayer->holdingID )->writable &&
+                                // and no metadata already on it
+                                ! getMetadata( nextPlayer->holdingID, 
+                                               metaData ) ) {
+
+                                memset( metaData, 0, MAP_METADATA_LENGTH );
+                                memcpy( metaData, m.saidText, len + 1 );
+                                
+                                nextPlayer->holdingID = 
+                                    addMetadata( nextPlayer->holdingID,
+                                                 metaData );
+
+                                TransRecord *writingHappenTrans =
+                                    getMetaTrans( 0, nextPlayer->holdingID );
+                                
+                                if( writingHappenTrans != NULL &&
+                                    writingHappenTrans->newTarget > 0 &&
+                                    getObject( writingHappenTrans->newTarget )
+                                        ->written ) {
+                                    // bare hands transition going from
+                                    // writable to written
+                                    // use this to transform object in 
+                                    // hands as we write
+                                    handleHoldingChange( 
+                                        nextPlayer,
+                                        writingHappenTrans->newTarget );
+                                    playerIndicesToSendUpdatesAbout.
+                                        push_back( i );
+                                    }                    
+                                }    
                             }
-
-
-                        newSpeechPos.push_back( p );
+                        
+                        makePlayerSay( nextPlayer, m.saidText );
                         }
                     else if( m.type == KILL ) {
                         // send update even if action fails (to let them
@@ -7463,6 +7576,8 @@ int main() {
                                                 }
                                             hitPlayer->holdingID = 
                                                 woundHit->newTarget;
+                                            holdingSomethingNew( hitPlayer );
+                                            
                                             hitPlayer->holdingWound = true;
                                             
                                             playerIndicesToSendUpdatesAbout.
@@ -7482,9 +7597,13 @@ int main() {
                                         // leave bloody knife or
                                         // whatever in hand
                                         nextPlayer->holdingID = rHit->newActor;
+                                        holdingSomethingNew( nextPlayer,
+                                                             oldHolding);
                                         }
                                     else if( r != NULL ) {
                                         nextPlayer->holdingID = r->newActor;
+                                        holdingSomethingNew( nextPlayer,
+                                                             oldHolding );
                                         }
 
 
@@ -7520,8 +7639,9 @@ int main() {
                                             else {
                                             
                                                 TransRecord *newDecayT = 
-                                                    getTrans( -1, 
-                                                              r->newTarget );
+                                                    getMetaTrans( 
+                                                        -1, 
+                                                        r->newTarget );
                     
                                                 if( newDecayT != NULL ) {
                                                     hitPlayer->
@@ -7894,6 +8014,7 @@ int main() {
                                     setResponsiblePlayer( -1 );
                                     
                                     nextPlayer->holdingID = target;
+                                    holdingSomethingNew( nextPlayer );
                                     
                                     nextPlayer->heldGraveOriginX = m.x;
                                     nextPlayer->heldGraveOriginY = m.y;
@@ -8284,6 +8405,7 @@ int main() {
                                     // negative holding IDs to indicate
                                     // holding another player
                                     nextPlayer->holdingID = -hitPlayer->id;
+                                    holdingSomethingNew( nextPlayer );
                                     
                                     nextPlayer->holdingEtaDecay = 0;
 
@@ -8521,12 +8643,28 @@ int main() {
                                 // try healing wound
                                     
                                 TransRecord *healTrans =
-                                    getTrans( nextPlayer->holdingID,
-                                              targetPlayer->holdingID );
+                                    getMetaTrans( nextPlayer->holdingID,
+                                                  targetPlayer->holdingID );
                                 
+                                char oldEnough = true;
+
                                 if( healTrans != NULL ) {
+                                    int healerWillHold = healTrans->newActor;
+                                    
+                                    if( healerWillHold > 0 ) {
+                                        if( computeAge( nextPlayer ) < 
+                                            getObject( healerWillHold )->
+                                            minPickupAge ) {
+                                            oldEnough = false;
+                                            }
+                                        }
+                                    }
+                                
+
+                                if( oldEnough && healTrans != NULL ) {
                                     targetPlayer->holdingID =
                                         healTrans->newTarget;
+                                    holdingSomethingNew( targetPlayer );
                                     
                                     // their wound has been changed
                                     // no longer track embedded weapon
@@ -8536,6 +8674,7 @@ int main() {
                                     
                                     nextPlayer->holdingID = 
                                         healTrans->newActor;
+                                    holdingSomethingNew( nextPlayer );
                                     
                                     setFreshEtaDecayForHeld( 
                                         nextPlayer );
@@ -8632,7 +8771,9 @@ int main() {
                                     if( r != NULL ) {
                                         int oldHolding = nextPlayer->holdingID;
                                         nextPlayer->holdingID = r->newActor;
-                                        
+                                        holdingSomethingNew( nextPlayer,
+                                                             oldHolding );
+
                                         if( oldHolding !=
                                             nextPlayer->holdingID ) {
                                             
@@ -8790,6 +8931,8 @@ int main() {
                                         if( oldC != NULL ) {
                                             nextPlayer->holdingID =
                                                 oldC->id;
+                                            holdingSomethingNew( nextPlayer );
+                                            
                                             nextPlayer->holdingEtaDecay
                                                 = oldCEtaDecay;
                                             
@@ -8877,6 +9020,8 @@ int main() {
                                     
                                     nextPlayer->holdingID =
                                         ( *clothingSlot )->id;
+                                    holdingSomethingNew( nextPlayer );
+
                                     *clothingSlot = NULL;
                                     nextPlayer->holdingEtaDecay =
                                         targetPlayer->clothingEtaDecay[ind];
@@ -9058,6 +9203,8 @@ int main() {
                                     
                                             
                                             nextPlayer->holdingID = target;
+                                            holdingSomethingNew( nextPlayer );
+                                            
                                             nextPlayer->holdingEtaDecay =
                                                 newHoldingEtaDecay;
 
@@ -9157,6 +9304,7 @@ int main() {
                                     nextPlayer->holdingID = 
                                         nextPlayer->clothingContained[m.c].
                                         getElementDirect( slotToRemove );
+                                    holdingSomethingNew( nextPlayer );
 
                                     nextPlayer->holdingEtaDecay = 
                                         nextPlayer->
@@ -9774,7 +9922,7 @@ int main() {
                                         slotTimeStretch;
                                     
                                     TransRecord *newDecayT = 
-                                        getTrans( -1, newID );
+                                        getMetaTrans( -1, newID );
                                 
                                     if( newDecayT != NULL ) {
                                         newDecay = 
@@ -9839,7 +9987,7 @@ int main() {
                                             slotTimeStretch;
                                     
                                         TransRecord *newSubDecayT = 
-                                            getTrans( -1, newSubID );
+                                            getMetaTrans( -1, newSubID );
                                 
                                         if( newSubDecayT != NULL ) {
                                             newSubDecay = 
@@ -9932,7 +10080,8 @@ int main() {
                             if( newID != 0 ) {
                                 newCObj = getObject( newID );
                                 
-                                TransRecord *newDecayT = getTrans( -1, newID );
+                                TransRecord *newDecayT = 
+                                    getMetaTrans( -1, newID );
                                 
                                 if( newDecayT != NULL ) {
                                     nextPlayer->clothingEtaDecay[c] = 
@@ -10110,7 +10259,7 @@ int main() {
                             
                                     if( newID != 0 ) {
                                         TransRecord *newDecayT = 
-                                            getTrans( -1, newID );
+                                            getMetaTrans( -1, newID );
                                         
                                         if( newDecayT != NULL ) {
                                             newDecay = 
@@ -12142,7 +12291,7 @@ int main() {
                         "#",
                         nextPlayer->foodStore,
                         cap,
-                        nextPlayer->lastAteID,
+                        hideIDForClient( nextPlayer->lastAteID ),
                         nextPlayer->lastAteFillMax,
                         computeMoveSpeed( nextPlayer ),
                         nextPlayer->responsiblePlayerID,
@@ -12270,6 +12419,12 @@ int main() {
         if( healingMessage != NULL ) {
             delete [] healingMessage;
             }
+        
+        
+        // this one is global, so we must clear it every loop
+        newSpeech.deleteAll();
+        newSpeechPos.deleteAll();
+        
 
         
         // handle closing any that have an error
