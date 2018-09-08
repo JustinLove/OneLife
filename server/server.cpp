@@ -1087,6 +1087,7 @@ typedef enum messageType {
     DROP,
     KILL,
     SAY,
+    JUMP,
     MAP,
     TRIGGER,
     BUG,
@@ -1264,6 +1265,9 @@ ClientMessage parseMessage( LiveObject *inPlayer, char *inMessage ) {
             }
         
         delete tokens;
+        }
+    else if( strcmp( nameBuffer, "JUMP" ) == 0 ) {
+        m.type = JUMP;
         }
     else if( strcmp( nameBuffer, "USE" ) == 0 ) {
         m.type = USE;
@@ -4703,6 +4707,82 @@ static char addHeldToClothingContainer( LiveObject *inPlayer,
     }
 
 
+static void removeFromClothingContainerToHold( LiveObject *inPlayer,
+                                               int inC,
+                                               int inI = -1 ) {    
+    
+    ObjectRecord *cObj = 
+        clothingByIndex( inPlayer->clothing, 
+                         inC );
+                                
+    float stretch = 1.0f;
+    
+    if( cObj != NULL ) {
+        stretch = cObj->slotTimeStretch;
+        }
+    
+    int oldNumContained = 
+        inPlayer->clothingContained[inC].size();
+
+    int slotToRemove = inI;
+                                
+    if( slotToRemove < 0 ) {
+        slotToRemove = oldNumContained - 1;
+        }
+                                
+    int toRemoveID = -1;
+                                
+    if( oldNumContained > 0 &&
+        oldNumContained > slotToRemove &&
+        slotToRemove >= 0 ) {
+                                    
+        toRemoveID = 
+            inPlayer->clothingContained[inC].
+            getElementDirect( slotToRemove );
+        }
+
+    if( oldNumContained > 0 &&
+        oldNumContained > slotToRemove &&
+        slotToRemove >= 0 &&
+        // old enough to handle it
+        getObject( toRemoveID )->minPickupAge <= 
+        computeAge( inPlayer ) ) {
+                                    
+
+        inPlayer->holdingID = 
+            inPlayer->clothingContained[inC].
+            getElementDirect( slotToRemove );
+        holdingSomethingNew( inPlayer );
+
+        inPlayer->holdingEtaDecay = 
+            inPlayer->
+            clothingContainedEtaDecays[inC].
+            getElementDirect( slotToRemove );
+                                    
+        timeSec_t curTime = Time::timeSec();
+
+        if( inPlayer->holdingEtaDecay != 0 ) {
+                                        
+            timeSec_t offset = 
+                inPlayer->holdingEtaDecay
+                - curTime;
+            offset = offset * stretch;
+            inPlayer->holdingEtaDecay =
+                curTime + offset;
+            }
+
+        inPlayer->clothingContained[inC].
+            deleteElement( slotToRemove );
+        inPlayer->clothingContainedEtaDecays[inC].
+            deleteElement( slotToRemove );
+
+        inPlayer->heldOriginValid = 0;
+        inPlayer->heldOriginX = 0;
+        inPlayer->heldOriginY = 0;
+        inPlayer->heldTransitionSourceID = -1;
+        }
+    }
+
 
 // change held as the result of a transition
 static void handleHoldingChange( LiveObject *inPlayer, int inNewHeldID ) {
@@ -5551,9 +5631,9 @@ int main() {
     
     
     
-    SocketServer server( port, 256 );
+    SocketServer *server = new SocketServer( port, 256 );
     
-    sockPoll.addSocketServer( &server );
+    sockPoll.addSocketServer( server );
     
     AppLog::infoF( "Listening for connection on port %d", port );
 
@@ -5795,7 +5875,7 @@ int main() {
         
         if( readySock != NULL && !readySock->isSocket ) {
             // server ready
-            Socket *sock = server.acceptConnection( 0 );
+            Socket *sock = server->acceptConnection( 0 );
 
             if( sock != NULL ) {
                 HostAddress *a = sock->getRemoteHostAddress();
@@ -6716,10 +6796,13 @@ int main() {
                       nextPlayer->ys == nextPlayer->yd ) 
                     ||
                     m.type == MOVE ||
+                    m.type == JUMP || 
                     m.type == SAY ) {
                     
 
-                    if( m.type == MOVE && nextPlayer->heldByOther ) {
+                    if( ( m.type == MOVE || m.type == JUMP ) && 
+                        nextPlayer->heldByOther ) {
+                        
                         // baby wiggling out of parent's arms
                         handleForcedBabyDrop( 
                             nextPlayer,
@@ -8794,8 +8877,13 @@ int main() {
                                     
                                     targetPlayer->foodUpdate = true;
                                     }
-                                else if( obj->clothing != 'n' ) {
-                                    // wearable
+                                else if( obj->clothing != 'n' &&
+                                         ( targetPlayer == nextPlayer
+                                           || 
+                                           computeAge( targetPlayer ) < 
+                                           babyAge) ) {
+                                    
+                                    // wearable, dress self or baby
                                     
                                     nextPlayer->holdingID = 0;
                                     timeSec_t oldEtaDecay = 
@@ -9128,8 +9216,40 @@ int main() {
                                          m.y == nextPlayer->yd  &&
                                          nextPlayer->holdingID > 0 ) {
                                     
+                                    // drop into clothing indicates right-click
+                                    // so swap
+                                    
+                                    int oldHeld = nextPlayer->holdingID;
+                                    
+                                    // first add to top of container
+                                    // if possible
                                     addHeldToClothingContainer( nextPlayer,
                                                                 m.c );
+                                    if( nextPlayer->holdingID == 0 ) {
+                                        // add to top worked
+
+                                        // now take off bottom to hold
+                                        // but keep looking to find something
+                                        // different than what we were
+                                        // holding before
+                                        for( int s=0; 
+                                             s < nextPlayer->
+                                                 clothingContained[m.c].size() 
+                                                 - 1;
+                                             s++ ) {
+                                            
+                                            if( nextPlayer->
+                                                 clothingContained[m.c].
+                                                getElementDirect( s ) != 
+                                                oldHeld ) {
+                                                
+                                              removeFromClothingContainerToHold(
+                                                    nextPlayer, m.c, s );
+                                                break;
+                                                }
+                                            }
+                                        }
+                                    
                                     }
                                 else if( nextPlayer->holdingID > 0 ) {
                                     // non-baby drop
@@ -9262,77 +9382,8 @@ int main() {
                             nextPlayer->actionTarget.y = m.y;
                             
                             if( m.c >= 0 && m.c < NUM_CLOTHING_PIECES ) {
-
-                                ObjectRecord *cObj = 
-                                    clothingByIndex( nextPlayer->clothing, 
-                                                     m.c );
-                                
-                                float stretch = 1.0f;
-                                
-                                if( cObj != NULL ) {
-                                    stretch = cObj->slotTimeStretch;
-                                    }
-
-                                int oldNumContained = 
-                                    nextPlayer->clothingContained[m.c].size();
-
-                                int slotToRemove = m.i;
-                                
-                                if( slotToRemove < 0 ) {
-                                    slotToRemove = oldNumContained - 1;
-                                    }
-                                
-                                int toRemoveID = -1;
-                                
-                                if( oldNumContained > 0 &&
-                                    oldNumContained > slotToRemove &&
-                                    slotToRemove >= 0 ) {
-                                    
-                                    toRemoveID = 
-                                        nextPlayer->clothingContained[m.c].
-                                        getElementDirect( slotToRemove );
-                                    }
-
-                                if( oldNumContained > 0 &&
-                                    oldNumContained > slotToRemove &&
-                                    slotToRemove >= 0 &&
-                                    // old enough to handle it
-                                    getObject( toRemoveID )->minPickupAge <= 
-                                    computeAge( nextPlayer ) ) {
-                                    
-
-                                    nextPlayer->holdingID = 
-                                        nextPlayer->clothingContained[m.c].
-                                        getElementDirect( slotToRemove );
-                                    holdingSomethingNew( nextPlayer );
-
-                                    nextPlayer->holdingEtaDecay = 
-                                        nextPlayer->
-                                        clothingContainedEtaDecays[m.c].
-                                        getElementDirect( slotToRemove );
-                                    
-                                    timeSec_t curTime = Time::timeSec();
-
-                                    if( nextPlayer->holdingEtaDecay != 0 ) {
-                                        
-                                        timeSec_t offset = 
-                                            nextPlayer->holdingEtaDecay
-                                            - curTime;
-                                        offset = offset * stretch;
-                                        nextPlayer->holdingEtaDecay =
-                                            curTime + offset;
-                                        }
-
-                                    nextPlayer->clothingContained[m.c].
-                                        deleteElement( slotToRemove );
-                                    nextPlayer->clothingContainedEtaDecays[m.c].
-                                        deleteElement( slotToRemove );
-
-                                    nextPlayer->heldOriginValid = 0;
-                                    nextPlayer->heldOriginX = 0;
-                                    nextPlayer->heldOriginY = 0;
-                                    nextPlayer->heldTransitionSourceID = -1;
-                                    }
+                                removeFromClothingContainerToHold(
+                                    nextPlayer, m.c, m.i );
                                 }
                             }
                         }
@@ -12504,6 +12555,14 @@ int main() {
             }
         }
     
+    // stop listening on server socket immediately, before running
+    // cleanup steps.  Cleanup may take a while, and we don't want to leave
+    // server socket listening, because it will answer reflector and player
+    // connection requests but then just hang there.
+
+    // Closing the server socket makes these connection requests fail
+    // instantly (instead of relying on client timeouts).
+    delete server;
 
     quitCleanup();
     

@@ -3,9 +3,37 @@ This file only list changes to game code.  Changes to content can be found here:
 http://onehouronelife.com/updateLog.php
 
 
-Version 132    ???
+Version 137    ???
+
+--Fixed a new double-free bug that causes a potential crash on chat.  Thanks
+  Sophie Van L.
+
+
+
+Version 136    2018-September-7
 
 --Fixed scene editor animation speed of people holding speedMult objects.
+
+--Fixed handling of leading/trailing spaces when typing spoken text.  A hidden
+  leading space could spoil your baby naming phrase.  Thanks Jacek T.
+
+--Fixed a bouncing-forever bug that was caused by ambiguity of jump-out-of-arms
+  MOVE message (if messages are interleaved just right, the server can
+  interpret this MOVE as a real move instead of a jump-out-of-arms action).
+  Added new JUMP message to eliminate this ambiguity.  Thanks Jacek T.
+
+--Fixed a few major glitches in hold-mouse-to-keep-moving.  Thanks Jacek T.
+
+--Bouncing forever bug catcher now asks users to send recorded game file too.
+
+--Fixed invalid memory read when generating hint for use-on-bare-ground
+  transition.
+
+--Fixed spelling of eighth cousin.  Thanks Trick.
+
+--Flying object on pick-up now snaps into hand when you turn to walk away
+  (instead of floating behind you magically, trying to catch up with you).
+
 
 
 
@@ -21,6 +49,20 @@ Server Fixes
   metadata IDs were not being stripped out.
 
 --Say limit based on age only enforced when reading if you are < 10 years old.
+
+--Fixed bug in dataBundle script that caused old scenes to be deleted every
+  update.
+
+--Server now closes server socket immediately at start of shutdown process.
+  Before, it would accept connections from clients and the reflector and then
+  just hang there.  Now these connections are insta-rejected if server is in
+  the process of shutting down.
+
+--Fixed so that right-clicking worn backpack swaps held with bottom item in
+  pack.  Works the same when worn or on the ground now.
+
+--Can no longer dress or swap clothing on elderly (was allowing theft of
+  elderly backpacks).
 
 
 

@@ -107,7 +107,7 @@ doublePair lastScreenEdge = {0,0};
 static char teaserVideo = false;
 
 
-static char showBugMessage = false;
+static int showBugMessage = 0;
 static const char *bugEmail = "jason" "rohrer" "@" "fastmail.fm";
 
 
@@ -3455,7 +3455,8 @@ ObjectAnimPack LivingLifePage::drawLiveObject(
 
         heldObjectDrawPos = mult( heldObjectDrawPos, 1.0 / CELL_D );
         
-        if( inObj->heldPosOverride && 
+        if( inObj->currentSpeed == 0 &&
+            inObj->heldPosOverride && 
             ! inObj->heldPosOverrideAlmostOver &&
             ! equal( heldObjectDrawPos, inObj->heldObjectPos ) ) {
                         
@@ -7230,8 +7231,18 @@ void LivingLifePage::draw( doublePair inViewCenter,
 
             messagePos.y += 200;
 
-            drawMessage( "bugMessage1", messagePos );
-
+            switch( showBugMessage ) {
+                case 1:
+                    drawMessage( "bugMessage1a", messagePos );
+                    break;
+                case 2:
+                    drawMessage( "bugMessage1b", messagePos );
+                    break;
+                case 3:
+                    drawMessage( "bugMessage1c", messagePos );
+                    break;
+                }
+            
             messagePos = lastScreenViewCenter;
 
 
@@ -8057,10 +8068,12 @@ char *LivingLifePage::getHintMessage( int inObjectID, int inIndex ) {
             else {
                 // if the trans takes one of the elements to a deeper
                 // state, that's more important, starting with actor
-                if( getObjectDepth( newActor ) > getObjectDepth( actor ) ) {
+                if( actor > 0 && 
+                    getObjectDepth( newActor ) > getObjectDepth( actor ) ) {
                     result = newActor;
                     }
-                else if( getObjectDepth( newTarget ) > 
+                else if( target > 0 && 
+                         getObjectDepth( newTarget ) > 
                          getObjectDepth( target ) ) {
                     result = newTarget;
                     }
@@ -8314,15 +8327,26 @@ void LivingLifePage::sendBugReport( int inBugNumber ) {
 
     FILE *f = fopen( "stdout.txt", "r" );
 
+    int recordGame = SettingsManager::getIntSetting( "recordGame", 0 );
+    
     if( f != NULL ) {
         // stdout.txt exists
         
-        printf( "Bug report sent, telling user to email stdout.txt to us.\n" );
+        printf( "Bug report sent, telling user to email files to us.\n" );
         
         fclose( f );
+
+        showBugMessage = 3;
         
-        showBugMessage = true;
+        if( recordGame ) {
+            showBugMessage = 2;
+            }
         }
+    else if( recordGame ) {
+        printf( "Bug report sent, telling user to email files to us.\n" );
+        showBugMessage = 1;
+        }
+    
     }
 
 
@@ -14663,8 +14687,9 @@ void LivingLifePage::step() {
                             ||
                             absY > CELL_D * 1 ) {
                             
-                            if( ( absX < CELL_D * 4 ||
-                                  absY < CELL_D * 4 ) ) {
+                            if( absX < CELL_D * 4 
+                                &&
+                                absY < CELL_D * 4 ) {
                                 
                                 // they're holding mouse down very close
                                 // to to their character
@@ -14686,7 +14711,10 @@ void LivingLifePage::step() {
                                                             mouseVector );
                                 
                                 o->useWaypoint = true;
-                                o->maxWaypointPathLength = 5;
+                                // leave some wiggle room here
+                                // path through waypoint might get extended
+                                // if it involves obstacles
+                                o->maxWaypointPathLength = 10;
                                 
                                 o->waypointX = lrint( worldMouseX / CELL_D );
                                 o->waypointY = lrint( worldMouseY / CELL_D );
@@ -16320,16 +16348,9 @@ void LivingLifePage::pointerDown( float inX, float inY ) {
         // click from a held baby
 
         // only send once, even on multiple clicks
-        if( ! ourLiveObject->jumpOutOfArmsSent ) {    
-            // send dummy move message right away to make baby jump out of arms
-            
-            // we don't need to use baby's true position here... they are
-            // in arms
-            char *moveMessage = autoSprintf( "MOVE %d %d 1 0#",
-                                             ourLiveObject->xd,
-                                             ourLiveObject->yd );
-            sendToServerSocket( moveMessage );
-            delete [] moveMessage;
+        if( ! ourLiveObject->jumpOutOfArmsSent ) {
+            // send new JUMP message instead of ambigous MOVE message
+            sendToServerSocket( (char*)"JUMP 0 0#" );
             
             ourLiveObject->jumpOutOfArmsSent = true;
             }
@@ -17692,6 +17713,39 @@ void LivingLifePage::keyDown( unsigned char inASCII ) {
             else {
                 char *typedText = mSayField.getText();
                 
+                
+                // tokenize and then recombine with single space
+                // between each.  This will get rid of any hidden
+                // lead/trailing spaces, which may confuse server
+                // for baby naming, etc.
+                // also eliminates all-space strings, which 
+                // end up in speech history, but are invisible
+                SimpleVector<char *> *tokens = 
+                    tokenizeString( typedText );
+                
+                if( tokens->size() > 0 ) {
+                    char *oldTypedText = typedText;
+                    
+                    char **strings = tokens->getElementArray();
+                    
+                    typedText = join( strings, tokens->size(), " " );
+                    
+                    delete [] strings;
+                    
+                    delete [] oldTypedText;
+                    }
+                else {
+                    // string with nothing but spaces, or empty
+                    // force it empty
+                    delete [] typedText;
+                    typedText = stringDuplicate( "" );
+                    }
+                
+                tokens->deallocateStringElements();
+                delete tokens;
+                    
+                
+
                 if( strcmp( typedText, "" ) == 0 ) {
                     mSayField.unfocus();
                     }
