@@ -15,6 +15,9 @@
 #include "ageControl.h"
 #include "musicPlayer.h"
 
+#include "emotion.h"
+
+
 #include "liveAnimationTriggers.h"
 
 #include "../commonSource/fractalNoise.h"
@@ -119,6 +122,8 @@ static char savingSpeech = false;
 static char savingSpeechColor = false;
 static char savingSpeechMask = false;
 
+
+static double emotDuration = 10;
 
 
 
@@ -739,6 +744,7 @@ typedef enum messageType {
     PLAYER_MOVES_START,
     PLAYER_OUT_OF_RANGE,
     PLAYER_SAYS,
+    PLAYER_EMOT,
     FOOD_CHANGE,
     LINEAGE,
     CURSED,
@@ -806,6 +812,9 @@ messageType getMessageType( char *inMessage ) {
         }
     else if( strcmp( copy, "PS" ) == 0 ) {
         returnValue = PLAYER_SAYS;
+        }
+    else if( strcmp( copy, "PE" ) == 0 ) {
+        returnValue = PLAYER_EMOT;
         }
     else if( strcmp( copy, "FX" ) == 0 ) {
         returnValue = FOOD_CHANGE;
@@ -1793,6 +1802,8 @@ LivingLifePage::LivingLifePage()
 
     mMapGlobalOffset.x = 0;
     mMapGlobalOffset.y = 0;
+
+    emotDuration = SettingsManager::getFloatSetting( "emotDuration", 10 );
           
     hideGuiPanel = SettingsManager::getIntSetting( "hideGameUI", 0 );
 
@@ -3408,7 +3419,9 @@ ObjectAnimPack LivingLifePage::drawLiveObject(
             }
         
 
-
+        if( ! inObj->tempAgeOverrideSet )
+            setAnimationEmotion( inObj->currentEmot );
+        
         holdingPos =
             drawObjectAnim( inObj->displayID, 2, curType, 
                             timeVal,
@@ -3432,6 +3445,8 @@ ObjectAnimPack LivingLifePage::drawLiveObject(
                             ! inObj->heldPosOverrideAlmostOver,
                             inObj->clothing,
                             inObj->clothingContained );
+        
+        setAnimationEmotion( NULL );
         }
     
         
@@ -3583,6 +3598,9 @@ ObjectAnimPack LivingLifePage::drawLiveObject(
 
             personPos = add( personPos, inObj->ridingOffset );
 
+            if( ! inObj->tempAgeOverrideSet )
+                setAnimationEmotion( inObj->currentEmot );
+            
             // rideable object
             holdingPos =
                 drawObjectAnim( inObj->displayID, 2, curType, 
@@ -3607,6 +3625,8 @@ ObjectAnimPack LivingLifePage::drawLiveObject(
                                 ! inObj->heldPosOverrideAlmostOver,
                                 inObj->clothing,
                                 inObj->clothingContained );
+            
+            setAnimationEmotion( NULL );
             }
         
 
@@ -3649,7 +3669,10 @@ ObjectAnimPack LivingLifePage::drawLiveObject(
                                              &hideAllLimbsBaby );
                     }
                 
-
+                
+                if( ! babyO->tempAgeOverrideSet )
+                    setAnimationEmotion( babyO->currentEmot );
+                
                 returnPack =
                     drawObjectAnimPacked( 
                                 babyO->displayID, curHeldType, 
@@ -3673,6 +3696,8 @@ ObjectAnimPack LivingLifePage::drawLiveObject(
                                 babyO->clothing,
                                 babyO->clothingContained,
                                 0, NULL, NULL );
+                
+                setAnimationEmotion( NULL );
 
                 if( babyO->currentSpeech != NULL ) {
                     
@@ -10953,6 +10978,9 @@ void LivingLifePage::step() {
                 o.actionTargetTweakX = 0;
                 o.actionTargetTweakY = 0;
                 
+                o.currentEmot = NULL;
+                o.emotClearETATime = 0;
+                
 
                 int forced = 0;
                 int done_moving = 0;
@@ -13513,6 +13541,37 @@ void LivingLifePage::step() {
                 }
             delete [] lines;
             }
+        else if( type == PLAYER_EMOT ) {
+            int numLines;
+            char **lines = split( message, "\n", &numLines );
+            
+            if( numLines > 0 ) {
+                // skip first
+                delete [] lines[0];
+                }            
+            
+            for( int i=1; i<numLines; i++ ) {
+                int id, emotIndex;
+                int numRead = sscanf( lines[i], "%d %d",
+                                      &id, &emotIndex );
+
+                if( numRead == 2 ) {
+                    for( int j=0; j<gameObjects.size(); j++ ) {
+                        if( gameObjects.getElement(j)->id == id ) {
+                            
+                            LiveObject *existing = gameObjects.getElement(j);
+                            
+                            existing->currentEmot = getEmotion( emotIndex );
+                            
+                            existing->emotClearETATime = 
+                                game_getCurrentTime() + emotDuration;
+                            }
+                        }
+                    }
+                delete [] lines[i];
+                }
+            delete [] lines;
+            }
         else if( type == LINEAGE ) {
             int numLines;
             char **lines = split( message, "\n", &numLines );
@@ -14376,6 +14435,14 @@ void LivingLifePage::step() {
                     }
                 }
             }
+
+        
+        if( o->currentEmot != NULL ) {
+            if( game_getCurrentTime() > o->emotClearETATime ) {
+                o->currentEmot = NULL;
+                }
+            }
+
         
         double animSpeed = o->lastSpeed;
         
@@ -15233,6 +15300,9 @@ void LivingLifePage::step() {
                     }
                 }
 
+
+            markEmotionsLive();
+            
             finalizeLiveObjectSet();
             
             mStartedLoadingFirstObjectSet = true;
@@ -17590,6 +17660,21 @@ void LivingLifePage::keyDown( unsigned char inASCII ) {
 
     
     switch( inASCII ) {
+        /*
+        // useful for testing
+        case '+':
+            getOurLiveObject()->displayID = getRandomPersonObject();
+            break;
+        case '_':
+            getOurLiveObject()->age += 10;
+            break;
+        case '-':
+            getOurLiveObject()->age -= 5;
+            break;
+        case '~':
+            getOurLiveObject()->age -= 1;
+            break;
+        */
         case 'S':
             if( savingSpeechEnabled && 
                 ! mSayField.isFocused() ) {
@@ -17749,71 +17834,82 @@ void LivingLifePage::keyDown( unsigned char inASCII ) {
                 if( strcmp( typedText, "" ) == 0 ) {
                     mSayField.unfocus();
                     }
-                else if( strlen( typedText ) > 0 &&
+                else {
+                    
+                    if( strlen( typedText ) > 0 &&
                          typedText[0] == '/' ) {
                     
-                    // a command, don't send to server
-                    
-                    const char *filterCommand = "/";
-                    
-                    if( strstr( typedText, filterCommand ) == typedText ) {
-                        // starts with filter command
+                        // a command, don't send to server
                         
-                        char *filterString = 
-                            &( typedText[ strlen( filterCommand ) ] );
+                        const char *filterCommand = "/";
                         
-                        
-                        if( mHintFilterString != NULL ) {
-                            delete [] mHintFilterString;
-                            mHintFilterString = NULL;
+                        if( strstr( typedText, filterCommand ) == typedText ) {
+                            // starts with filter command
+
+                            int emotIndex = getEmotionIndex( typedText );
+                            
+                            if( emotIndex != -1 ) {
+                                char *message = 
+                                    autoSprintf( "EMOT 0 0 %d#", emotIndex );
+                                
+                                sendToServerSocket( message );
+                                delete [] message;
+                                }
+                            else {
+                                // filter hints
+                                char *filterString = 
+                                    &( typedText[ strlen( filterCommand ) ] );
+                                
+                                
+                                if( mHintFilterString != NULL ) {
+                                    delete [] mHintFilterString;
+                                    mHintFilterString = NULL;
+                                    }
+                                
+                                char *trimmedFilterString = 
+                                    trimWhitespace( filterString );
+                                
+                                int filterStringLen = 
+                                    strlen( trimmedFilterString );
+                            
+                                if( filterStringLen > 0 ) {
+                                    // not blank
+                                    mHintFilterString = 
+                                        stringDuplicate( trimmedFilterString );
+                                    }
+                            
+                                delete [] trimmedFilterString;
+                            
+                                mForceHintRefresh = true;
+                                mNextHintIndex = 0;
+                                }
                             }
-                        
-                        char *trimmedFilterString = 
-                            trimWhitespace( filterString );
-
-                        int filterStringLen = strlen( trimmedFilterString );
-
-                        if( filterStringLen > 0 ) {
-                            // not blank
-                            mHintFilterString = 
-                                stringDuplicate( trimmedFilterString );
-                            }
-
-                        delete [] trimmedFilterString;
-                        
-                        mForceHintRefresh = true;
-                        mNextHintIndex = 0;
                         }
-
-                    mSentChatPhrases.push_back( stringDuplicate( typedText ) );
+                    else {
+                        // send text to server
+                        char *message = 
+                            autoSprintf( "SAY 0 0 %s#",
+                                         typedText );
+                        sendToServerSocket( message );
+                        delete [] message;
+                        }
                     
-                    mSayField.setText( "" );
-                    mSayField.unfocus();
-                    }
-                else {
-                    // send text to server
-                    char *message = 
-                        autoSprintf( "SAY 0 0 %s#",
-                                     typedText );
                     for( int i=0; i<mSentChatPhrases.size(); i++ ) {
                         if( strcmp( 
                                 typedText, 
-                                mSentChatPhrases.getElementDirect(i) ) == 0 ) {
+                                mSentChatPhrases.getElementDirect(i) ) 
+                            == 0 ) {
+                            
                             delete [] mSentChatPhrases.getElementDirect(i);
                             mSentChatPhrases.deleteElement(i);
                             i--;
                             }
                         }
-                    mSentChatPhrases.push_back( stringDuplicate( typedText ) );
-                    
-                    sendToServerSocket( message );
-            
 
-                    
+                    mSentChatPhrases.push_back( stringDuplicate( typedText ) );
+
                     mSayField.setText( "" );
                     mSayField.unfocus();
-
-                    delete [] message;
                     }
                 
                 delete [] typedText;

@@ -514,26 +514,38 @@ void initTransBankFinish() {
                             }
                         }
 
-                    addTrans( newTransIDs[0],
-                              newTransIDs[1],
-                              newTransIDs[2],
-                              newTransIDs[3],
-                              tr->lastUseActor,
-                              tr->lastUseTarget,
-                              tr->reverseUseActor,
-                              tr->reverseUseTarget,
-                              tr->noUseActor,
-                              tr->noUseTarget,
-                              tr->autoDecaySeconds,
-                              tr->actorMinUseFraction,
-                              tr->targetMinUseFraction, 
-                              tr->move,
-                              tr->desiredMoveDist,
-                              tr->actorChangeChance,
-                              tr->targetChangeChance,
-                              tr->newActorNoChange,
-                              tr->newTargetNoChange,
-                              true );
+                    // don't replace explicitly-authored trans with an auto-
+                    // generated one based on a pattern
+                    // the authored trans trumps the pattern
+                    TransRecord *existingTrans = getTrans( newTransIDs[0],
+                                                           newTransIDs[1],
+                                                           tr->lastUseActor,
+                                                           tr->lastUseTarget );
+                    if( existingTrans == NULL ) {    
+                        // no authored trans exists
+
+                        addTrans( newTransIDs[0],
+                                  newTransIDs[1],
+                                  newTransIDs[2],
+                                  newTransIDs[3],
+                                  tr->lastUseActor,
+                                  tr->lastUseTarget,
+                                  tr->reverseUseActor,
+                                  tr->reverseUseTarget,
+                                  tr->noUseActor,
+                                  tr->noUseTarget,
+                                  tr->autoDecaySeconds,
+                                  tr->actorMinUseFraction,
+                                  tr->targetMinUseFraction, 
+                                  tr->move,
+                                  tr->desiredMoveDist,
+                                  tr->actorChangeChance,
+                                  tr->targetChangeChance,
+                                  tr->newActorNoChange,
+                                  tr->newTargetNoChange,
+                                  true );
+                        }
+                    
                     }
                 }
             }
@@ -2585,6 +2597,21 @@ char isGrave( int inObjectID ) {
     if( r->deathMarker ) {
         return true;
         }
+    
+    // first, see if this decays into a grave in one step
+
+    TransRecord *trans = getTrans( -1, inObjectID );
+    
+    if( trans != NULL && trans->newTarget > 0 ) {
+        
+        ObjectRecord *nextR = getObject( trans->newTarget );
+
+        if( nextR != NULL && nextR->deathMarker ) {
+            return true;
+            }
+        }
+    
+    
 
     SimpleVector<int> seenIDs;
     
