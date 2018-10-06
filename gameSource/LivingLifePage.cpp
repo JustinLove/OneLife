@@ -15680,8 +15680,7 @@ void LivingLifePage::checkForPointerHit( PointerHitRecord *inRecord,
 
         // all short objects are mouse-through-able
         
-        if( oID > 0 && 
-            getObjectHeight( oID ) < CELL_D ) {
+        if( oID > 0 ) {
             ObjectRecord *obj = getObject( oID );
             
 
@@ -15791,8 +15790,6 @@ void LivingLifePage::checkForPointerHit( PointerHitRecord *inRecord,
                     false );
                 
                 if( dist < minDistThatHits ) {
-                    p->hit = true;
-                    
                     // already hit a short object
                     // AND this object is tall
                     // (don't click through short behind short)
@@ -15802,14 +15799,6 @@ void LivingLifePage::checkForPointerHit( PointerHitRecord *inRecord,
                         if( p->closestCellY > y ) {
                             p->hitOurPlacementBehind = true;
                             }
-                        }
-                    else {
-                        p->closestCellX = x;
-                        p->closestCellY = y;
-                        
-                        p->hitSlotIndex = sl;
-
-                        p->hitAnObject = true;
                         }
                     }
                 }
