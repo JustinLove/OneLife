@@ -15609,7 +15609,7 @@ void LivingLifePage::checkForPointerHit( PointerHitRecord *inRecord,
     p->closestCellX = clickDestX;
     p->closestCellY = clickDestY;
 
-    if( mForceGroundClick ) {
+    if( mForceGroundClick || autoRun ) {
         return;
         }
     
