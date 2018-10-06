@@ -317,8 +317,6 @@ static void setupEyesAndMouth( ObjectRecord *inR ) {
                 
                 r->mainEyesOffset = 
                     sub( r->spritePos[i], r->spritePos[ headIndex ] );
-                printf( "Main eyes offset = %f, %f\n", r->mainEyesOffset.x,
-                        r->mainEyesOffset.y );
                 }
             }
         } 
@@ -3827,10 +3825,13 @@ double getClosestObjectPart( ObjectRecord *inObject,
                     }
                 hatChecked = true;
                 }
-            else if( !tunicChecked ) {
+            else if( !tunicChecked && i < headIndex ) {
                 // bottom, tunic, and backpack behind back arm
                 // but ignore the arm when checking for clothing hit
                 // we never want to click on arm instead of the clothing
+                
+                // don't count clicks that land on head or above
+                // (head is in front of tunic)
                 
                 
                 cObj[0] = inClothing->backpack;        
