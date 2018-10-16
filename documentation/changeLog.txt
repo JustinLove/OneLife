@@ -4,6 +4,32 @@ http://onehouronelife.com/updateLog.php
 
 
 
+
+Server Fixes
+
+--Default bare-hand action doesn't apply when holding something if the target
+  object is a container (we want to insert item into container in that case).
+  Fixes #64
+
+--Use-on-bare-ground action automatically applies when swapping held with item
+  on ground, inserting held into container, or swapping held with container.
+  Bare-hand pickup-style action automatically applies when removing item from a
+  container or obtaining something new as the result of a swap.  This means
+  that wild piglets and goose, which are containable, but still supposed to go
+  through a transition when picked up or set down, do not get stuck in their
+  held state when swapped or put in a container.  Fixes #66
+
+--Whoops... fix for multiple sounds playing failed to check for case when
+  target object doesn't change (exmaple: cooking over hot coals).
+  Fixes #67,  Fixes #68
+
+--Fixed so that client EMOT requests are processed (just like SAY requests)
+  while a player is moving or while held as a baby.
+  Fixes jasonrohrer/OneLifeData7#23 
+
+
+
+
 Version 153    2018-October-12
 
 --FINALLY found an additional cause of the bouncing-forever bug (stale MOVE
