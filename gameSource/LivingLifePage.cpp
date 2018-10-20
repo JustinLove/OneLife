@@ -3378,12 +3378,15 @@ ObjectAnimPack LivingLifePage::drawLiveObject(
 
     // diegetic temperature
     if( inObj->heat < 0.5 ) {
-        double shiverMax = CELL_D * 0.05 * abs(inObj->heat - 0.5);
-        double shiverX = randSource.getRandomBoundedInt( 0, shiverMax );
-        double shiverY = randSource.getRandomBoundedInt( 0, shiverMax );
-        doublePair shiver = { shiverX, shiverY };
+        double shiverChance = 1.0 - inObj->heat * 2;
+        if( randSource.getRandomBoundedDouble( 0, 1.0 ) < pow(shiverChance, 3) ) {
+            double shiverMax = CELL_D * 0.01;
+            double shiverX = randSource.getRandomBoundedInt( 0, shiverMax );
+            double shiverY = randSource.getRandomBoundedInt( 0, shiverMax );
+            doublePair shiver = { shiverX, shiverY };
 
-        pos = add( pos, shiver );
+            pos = add( pos, shiver );
+            }
         }
                 
     AnimType curType = inObj->curAnim;
