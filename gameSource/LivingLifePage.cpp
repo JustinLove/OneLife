@@ -750,6 +750,7 @@ typedef enum messageType {
     LINEAGE,
     CURSED,
     CURSE_TOKEN_CHANGE,
+    CURSE_SCORE,
     NAMES,
     APOCALYPSE,
     DYING,
@@ -831,6 +832,9 @@ messageType getMessageType( char *inMessage ) {
         }
     else if( strcmp( copy, "CX" ) == 0 ) {
         returnValue = CURSE_TOKEN_CHANGE;
+        }
+    else if( strcmp( copy, "CS" ) == 0 ) {
+        returnValue = CURSE_SCORE;
         }
     else if( strcmp( copy, "NM" ) == 0 ) {
         returnValue = NAMES;
@@ -5461,7 +5465,7 @@ void LivingLifePage::draw( doublePair inViewCenter,
 
 
 
-        // then permanent, wall objects
+        // then permanent, non-container, wall objects
         for( int x=xStart; x<=xEnd; x++ ) {
             int mapI = y * mMapD + x;
             
@@ -5478,6 +5482,43 @@ void LivingLifePage::draw( doublePair inViewCenter,
                 if( ! o->drawBehindPlayer &&
                     o->floorHugging &&
                     o->permanent &&
+                    o->numSlots == 0 &&
+                    mMapMoveSpeeds[ mapI ] == 0 ) {
+                
+                    if( o->anySpritesBehindPlayer ) {
+                        // draw only non-behind layers now
+                        prepareToSkipSprites( o, false );
+                        }                    
+
+                    drawMapCell( mapI, screenX, screenY );
+
+                    if( o->anySpritesBehindPlayer ) {
+                        restoreSkipDrawing( o );
+                        }
+
+                    cellDrawn[ mapI ] = true;
+                    }
+                }
+            }
+
+        // then permanent, container, wall objects (walls with signs)
+        for( int x=xStart; x<=xEnd; x++ ) {
+            int mapI = y * mMapD + x;
+            
+            if( cellDrawn[ mapI ] ) {
+                continue;
+                }
+            
+            int screenX = CELL_D * ( x + mMapOffsetX - mMapD / 2 );
+
+
+            if( mMap[ mapI ] > 0 ) {
+                ObjectRecord *o = getObject( mMap[ mapI ] );
+                
+                if( ! o->drawBehindPlayer &&
+                    o->floorHugging &&
+                    o->permanent &&
+                    o->numSlots > 0 &&
                     mMapMoveSpeeds[ mapI ] == 0 ) {
                 
                     if( o->anySpritesBehindPlayer ) {
@@ -6919,8 +6960,21 @@ void LivingLifePage::draw( doublePair inViewCenter,
         curseTokenPos.x += 6;
         curseTokenFont->drawString( "X", curseTokenPos, alignCenter );
         
-
-
+        
+        // for now, we receive at most one update per life, so
+        // don't need to worry about showing erased version of this
+        if( ourLiveObject->excessCursePoints > 0 ) {
+            setDrawColor( 0, 0, 0, 1.0 );
+            doublePair pointsPos = curseTokenPos;
+            pointsPos.y -= 22;
+            pointsPos.x -= 3;
+            
+            char *pointString = autoSprintf( "%d", 
+                                             ourLiveObject->excessCursePoints );
+            pencilFont->drawString( pointString, pointsPos, alignCenter );
+            delete [] pointString;
+            }
+        
 
         setDrawColor( 1, 1, 1, 1 );
         toggleMultiplicativeBlend( true );
@@ -9407,7 +9461,7 @@ void LivingLifePage::step() {
         ourObject != NULL && 
         curTime - lastServerMessageReceiveTime < 1 &&
         curTime - ourObject->pendingActionAnimationStartTime > 
-        5 + largestPendingMessageTimeGap ) {
+        10 + largestPendingMessageTimeGap ) {
         
         // been bouncing for five seconds with no answer from server
         // in the mean time, we have seen other messages arrive from server
@@ -9537,7 +9591,19 @@ void LivingLifePage::step() {
                 mServerSocket = -1;
 
                 setWaiting( false );
-                setSignal( "versionMismatch" );
+
+                if( ! usingCustomServer && 
+                    mRequiredVersion < dataVersionNumber ) {
+                    // we have a newer data version than the server
+                    // the servers must be in the process of updating, and
+                    // we connected at just the wrong time
+                    // Don't display a confusing version mismatch message here.
+                    setSignal( "serverUpdate" );
+                    }
+                else {
+                    setSignal( "versionMismatch" );
+                    }
+
                 delete [] message;
                 return;
                 }
@@ -11021,6 +11087,7 @@ void LivingLifePage::step() {
                 o.relationName = NULL;
 
                 o.curseLevel = 0;
+                o.excessCursePoints = 0;
                 o.curseTokenCount = 0;
 
                 o.tempAgeOverrideSet = false;
@@ -12023,6 +12090,14 @@ void LivingLifePage::step() {
                                             getTrans( oldHeld,
                                                       heldTransitionSourceID );
                                         
+                                        if( t == NULL &&
+                                            oldHeld == 
+                                            heldTransitionSourceID ) {
+                                            // see if use-on-bare-ground
+                                            // transition exists
+                                            t = getTrans( oldHeld, -1 );
+                                            }
+
                                         if( t != NULL &&
                                             t->target != t->newTarget &&
                                             t->newTarget > 0 ) {
@@ -12049,7 +12124,8 @@ void LivingLifePage::step() {
                                         }
                                     
                                     
-                                    if( ! clothingChanged &&
+                                    if( ! otherSoundPlayed && 
+                                        ! clothingChanged &&
                                         heldTransitionSourceID >= 0 &&
                                         heldObj->creationSound.numSubSounds 
                                         > 0 ) {
@@ -13825,6 +13901,15 @@ void LivingLifePage::step() {
                 
                 sscanf( message, "CX\n%d", 
                         &( ourLiveObject->curseTokenCount ) );
+                }
+            }
+        else if( type == CURSE_SCORE ) {
+            LiveObject *ourLiveObject = getOurLiveObject();
+            
+            if( ourLiveObject != NULL ) {
+                
+                sscanf( message, "CS\n%d", 
+                        &( ourLiveObject->excessCursePoints ) );
                 }
             }
         else if( type == NAMES ) {
@@ -15910,7 +15995,7 @@ void LivingLifePage::checkForPointerHit( PointerHitRecord *inRecord,
                     // AND this object is tall
                     // (don't click through short behind short)
                     if( p->hitOurPlacement &&
-                        getObjectHeight( oID ) > CELL_D ) {
+                        getObjectHeight( oID ) > .75 * CELL_D ) {
                         
                         if( p->closestCellY > y ) {
                             p->hitOurPlacementBehind = true;
@@ -16078,7 +16163,7 @@ void LivingLifePage::checkForPointerHit( PointerHitRecord *inRecord,
                     // AND this object is tall
                     // (don't click through short behind short)
                     if( p->hitOurPlacement &&
-                        getObjectHeight( oID ) > CELL_D ) {
+                        getObjectHeight( oID ) > .75 * CELL_D ) {
                         
                         if( p->closestCellY > y ) {
                             p->hitOurPlacementBehind = true;
