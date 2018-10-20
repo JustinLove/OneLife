@@ -16001,6 +16001,16 @@ void LivingLifePage::checkForPointerHit( PointerHitRecord *inRecord,
                             p->hitOurPlacementBehind = true;
                             }
                         }
+                    else if( getObjectHeight( oID ) < .75 * CELL_D ) {
+                        p->hit = true;
+
+                        p->closestCellX = x;
+                        p->closestCellY = y;
+
+                        p->hitSlotIndex = sl;
+
+                        p->hitAnObject = true;
+                        }
                     }
                 }
             }
