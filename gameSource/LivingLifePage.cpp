@@ -3376,6 +3376,15 @@ ObjectAnimPack LivingLifePage::drawLiveObject(
         pos = add( pos, actionOffset );
         }                
 
+    // diegetic temperature
+    if( inObj->heat < 0.5 ) {
+        double shiverMax = CELL_D * 0.05 * abs(inObj->heat - 0.5);
+        double shiverX = randSource.getRandomBoundedInt( 0, shiverMax );
+        double shiverY = randSource.getRandomBoundedInt( 0, shiverMax );
+        doublePair shiver = { shiverX, shiverY };
+
+        pos = add( pos, shiver );
+        }
                 
     AnimType curType = inObj->curAnim;
     AnimType fadeTargetType = inObj->curAnim;
