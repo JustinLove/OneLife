@@ -2722,11 +2722,17 @@ HoldingPos drawObjectAnim( int inObjectID, int inDrawBehindSlots,
 
                 sPos = add( sPos, inPos );
 
+                double sinVal = getOscOffset( 
+                    inFrameTime,
+                    0,
+                    0.4,
+                    1.0,
+                    0 );
 
                 setDrawFade( (drawWithHeat - 0.5) * 2 );
                 drawSprite( sweatDrops[1],
                             sPos,
-                            1.5,
+                            1.5 + sinVal * 0.1,
                             animHeadRotDelta - rot,
                             inFlipH);
                 setDrawFade(0.0);
