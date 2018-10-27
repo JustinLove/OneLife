@@ -445,6 +445,8 @@ char isSoundUsedByAnim( int inSoundID );
 // sets emotion for subsequent drawObjectAnim calls, or NULL for no emotion
 void setAnimationEmotion( Emotion *inEmotion );
 
+void setAnimationHeat( float heat );
+
 
 
 #endif

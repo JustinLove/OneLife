@@ -67,6 +67,16 @@ static char outputMouthFrames = false;
 static char mouthFrameOutputStarted = false;
 
 
+static SpriteHandle sweatDrops[5];
+const char *sweatDropFiles[5] = {
+    "sprites/87.tga",
+    "sprites/88.tga", // - 0.12
+    "sprites/89.tga", // - 0.12
+    "sprites/90.tga", // + 0.7
+    "sprites/91.tga"  // + 0.12
+};
+const int numSweatDrops = 5;
+
 
 
 
@@ -148,6 +158,9 @@ int initAnimationBankStart( char *outRebuildingCache ) {
         
         }
     
+    for ( int i=0; i<numSweatDrops; i++) {
+        sweatDrops[i] = loadSpriteBase( sweatDropFiles[i], false );
+        }
 
 
     maxID = 0;
@@ -510,6 +523,11 @@ void freeAnimationBank() {
             }
         delete [] mouthShapes;
         mouthShapes = NULL;
+        }
+
+    for( int i=0; i<numSweatDrops; i++ ) {
+        freeSprite( sweatDrops[i] );
+        sweatDrops[i] = NULL;
         }
     
     if( mouthShapeFrameList != NULL ) {
@@ -1182,6 +1200,13 @@ static Emotion *drawWithEmot = NULL;
 
 void setAnimationEmotion( Emotion *inEmotion ) {
     drawWithEmot = inEmotion;
+    }
+
+
+static float drawWithHeat = 0.5;
+
+void setAnimationHeat( float heat ) {
+    drawWithHeat = heat;
     }
 
 
@@ -2670,6 +2695,41 @@ HoldingPos drawObjectAnim( int inObjectID, int inDrawBehindSlots,
                             NULL,
                             0, NULL,
                             NULL );
+            }
+
+
+
+
+
+        // sweat drops
+        if( i == headIndex &&
+            obj->person &&
+            drawWithHeat > 0.5 ) {
+                doublePair offset = {0, 10};
+                double rot = 0.12;
+
+                if( inFlipH ) {
+                    offset.x *= -1;
+                    rot *= -1;
+                    }
+
+                if( animHeadRotDelta != 0 ) {
+                    offset = rotate( offset, -2 * M_PI * animHeadRotDelta );
+                    }
+
+
+                doublePair sPos = add( animHeadPos, offset );
+
+                sPos = add( sPos, inPos );
+
+
+                setDrawFade( (drawWithHeat - 0.5) * 2 );
+                drawSprite( sweatDrops[1],
+                            sPos,
+                            1.5,
+                            animHeadRotDelta - rot,
+                            inFlipH);
+                setDrawFade(0.0);
             }
 
 
