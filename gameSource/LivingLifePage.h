@@ -105,6 +105,9 @@ typedef struct LiveObject {
         // jump
         char jumpOutOfArmsSent;
         
+        // true if locally-controlled baby is attempting to jump out of arms
+        char babyWiggle;
+        double babyWiggleProgress;
 
         
         // usually 0, but used to slide into and out of riding position
@@ -826,7 +829,7 @@ class LivingLifePage : public GamePage {
         
 
 
-        void handleOurDeath();
+        void handleOurDeath( char inDisconnect = false );
         
 
         char *mDeathReason;
@@ -875,6 +878,9 @@ class LivingLifePage : public GamePage {
         // inExtraIndex is its index in the mMapExtraMovingObjects vectors
         void endExtraObjectMove( int inExtraIndex );
         
+
+        char mUsingSteam;
+        char mZKeyDown;
 
     };
 
