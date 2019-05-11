@@ -5887,6 +5887,7 @@ void LivingLifePage::draw( doublePair inViewCenter,
         
         // now move through queue in order, drawing
         int numQueued = drawQueue.size();
+        if( ! mapPullMode )
         for( int q=0; q<numQueued; q++ ) {
             DrawOrderRecord drawRec = drawQueue.removeMin();
             
