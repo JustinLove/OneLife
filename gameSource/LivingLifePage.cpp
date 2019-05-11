@@ -6403,10 +6403,10 @@ void LivingLifePage::draw( doublePair inViewCenter,
             if( mapPullModeFinalImage ) {
                 mapPullMode = false;
 
-                writeTGAFile( "mapOut.tga", mapPullTotalImage );
+                //writeTGAFile( "mapOut.tga", mapPullTotalImage );
+                writePNGFile( "mapOut.png", mapPullTotalImage );
                 delete mapPullTotalImage;
                 
-
                 // pull over
 
                 // auto-quit

@@ -24,3 +24,5 @@ void takePhoto( doublePair inCamerLocation, int inCameraFacing,
                 char *inAuthorName,
                 SimpleVector<int> *inSubjectIDs,
                 SimpleVector<char*> *inSubjectNames );
+
+void writePNGFile( char const* filename, Image* im );

@@ -484,3 +484,21 @@ void takePhoto( doublePair inCamerLocation, int inCameraFacing,
     delete [] serverSig;
     }
 
+
+
+void writePNGFile( char const* filename, Image* im ) {
+    double *r = im->getChannel( 0 );
+    double *g = im->getChannel( 1 );
+    double *b = im->getChannel( 2 );
+    int w = im->getWidth();
+    int h = im->getHeight();
+    int numPix = w * h;
+    unsigned char *data = new unsigned char[ numPix * 3 ];
+    for( int p=0, i=0; p<numPix; p++ ) {
+        data[i++] = lrint( r[p] * 255 );
+        data[i++] = lrint( g[p] * 255 );
+        data[i++] = lrint( b[p] * 255 );
+        }
+    stbi_write_png(filename, w, h, 3, data, 3*w);
+    delete [] data;
+    }
