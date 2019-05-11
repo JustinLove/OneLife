@@ -163,8 +163,8 @@ doublePair lastScreenViewCenter = {0, 0 };
 
 
 // world width of one view
-double viewWidth = 1280;
-double viewHeight = 720;
+double viewWidth = 1024;
+double viewHeight = 1024;
 
 
 // this is the desired visible width
@@ -419,7 +419,7 @@ void initDrawString( int inWidth, int inHeight ) {
     if( viewHeightFraction < 9.0 / 16.0 ) {
         // weird, wider than 16:9 aspect ratio
         
-        viewWidth = viewHeight / viewHeightFraction;
+        //viewWidth = viewHeight / viewHeightFraction;
         }
     
 
@@ -486,7 +486,7 @@ void initFrameDrawer( int inWidth, int inHeight, int inTargetFrameRate,
     if( viewHeightFraction < 9.0 / 16.0 ) {
         // weird, wider than 16:9 aspect ratio
         
-        viewWidth = viewHeight / viewHeightFraction;
+        //viewWidth = viewHeight / viewHeightFraction;
         }
     
     setViewSize( viewWidth );

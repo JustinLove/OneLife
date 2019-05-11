@@ -1922,6 +1922,8 @@ int mapPullEndY = 10;
 
 int mapPullCurrentX;
 int mapPullCurrentY;
+int mapPullStrideX;
+int mapPullStrideY;
 char mapPullCurrentSaved = false;
 char mapPullCurrentSent = false;
 char mapPullModeFinalImage = false;
@@ -5642,7 +5644,6 @@ void LivingLifePage::draw( doublePair inViewCenter,
 
             
 
-            /*
               // debugging grid
 
             doublePair cellPos = { (double)screenX, (double)screenY };
@@ -5670,7 +5671,7 @@ void LivingLifePage::draw( doublePair inViewCenter,
                 
                 }
             
-            doublePair cellPos = { (double)screenX, (double)screenY };
+            cellPos = { (double)screenX, (double)screenY };
             drawSquare( cellPos, CELL_D / 2 );
             
             FloatColor c = getDrawColor();
@@ -5700,7 +5701,6 @@ void LivingLifePage::draw( doublePair inViewCenter,
             
             delete [] yString;
             delete [] xString;
-            */
             }
 
         
@@ -6350,30 +6350,40 @@ void LivingLifePage::draw( doublePair inViewCenter,
             
             int screenWidth, screenHeight;
             getScreenDimensions( &screenWidth, &screenHeight );
+            printf( "screen %dx%d\n", screenWidth, screenHeight );
+            printf( "dim %dx%d\n", screenW, screenH );
             
             Image *screen = 
                 getScreenRegionRaw( 0, 0, screenWidth, screenHeight );
 
-            int startX = lastScreenViewCenter.x - screenW / 2;
-            int startY = lastScreenViewCenter.y + screenH / 2;
+            printf( "center %fx%f\n", lastScreenViewCenter.x, lastScreenViewCenter.y );
+            int startX = lastScreenViewCenter.x - CELL_D/2 - screenW / 2;
+            int startY = lastScreenViewCenter.y + CELL_D/2 + screenH / 2;
+            printf( "start offset %dx%d\n", startX, startY);
             startY = -startY;
             double scale = (double)screenWidth / (double)screenW;
             startX = lrint( startX * scale );
             startY = lrint( startY * scale );
+            printf( "start %dx%d @ %f\n", startX, startY, scale );
 
             int totalW = mapPullTotalImage->getWidth();
             int totalH = mapPullTotalImage->getHeight();
+            printf( "total %dx%d\n", totalW, totalH );
             
             int totalImStartX = startX + totalW / 2;
             int totalImStartY = startY + totalH / 2;
 
+            printf( "inital imstart %dx%d\n", totalImStartX, totalImStartY );
+
             double gridCenterOffsetX = ( mapPullEndX + mapPullStartX ) / 2.0;
             double gridCenterOffsetY = ( mapPullEndY + mapPullStartY ) / 2.0;
+            printf( "grid center %fx%f\n", gridCenterOffsetX, gridCenterOffsetY );
             
             totalImStartX -= lrint( gridCenterOffsetX * CELL_D  * scale );
             totalImStartY += lrint( gridCenterOffsetY * CELL_D * scale );
             
             //totalImStartY =  totalH - totalImStartY;
+            printf( "imstart %dx%d\n", totalImStartX, totalImStartY );
 
             if( totalImStartX >= 0 && totalImStartX < totalW &&
                 totalImStartY >= 0 && totalImStartY < totalH ) {
@@ -11901,16 +11911,16 @@ void LivingLifePage::step() {
                 if( x == mapPullCurrentX - sizeX/2 && 
                     y == mapPullCurrentY - sizeY/2 ) {
                     
-                    lastScreenViewCenter.x = mapPullCurrentX * CELL_D;
-                    lastScreenViewCenter.y = mapPullCurrentY * CELL_D;
+                    lastScreenViewCenter.x = mapPullCurrentX * CELL_D + CELL_D/2;
+                    lastScreenViewCenter.y = mapPullCurrentY * CELL_D - CELL_D/2;
                     setViewCenterPosition( lastScreenViewCenter.x,
                                            lastScreenViewCenter.y );
                     
-                    mapPullCurrentX += 10;
+                    mapPullCurrentX += mapPullStrideX;
                     
                     if( mapPullCurrentX > mapPullEndX ) {
-                        mapPullCurrentX = mapPullStartX;
-                        mapPullCurrentY += 5;
+                        mapPullCurrentX = mapPullStartX + mapPullStrideX/2;
+                        mapPullCurrentY += mapPullStrideY;
                         
                         if( mapPullCurrentY > mapPullEndY ) {
                             mapPullModeFinalImage = true;
@@ -17313,8 +17323,10 @@ void LivingLifePage::step() {
                 mapPullEndY = 
                     SettingsManager::getIntSetting( "mapPullEndY", 10 );
                 
-                mapPullCurrentX = mapPullStartX;
-                mapPullCurrentY = mapPullStartY;
+                mapPullStrideX = lrint( screenW / CELL_D );
+                mapPullStrideY = lrint( screenH / CELL_D );
+                mapPullCurrentX = mapPullStartX + mapPullStrideX/2;
+                mapPullCurrentY = mapPullStartY + mapPullStrideY/2;
 
                 if( mapPullMode ) {
                     mMapGlobalOffset.x = mapPullCurrentX;
@@ -17346,9 +17358,9 @@ void LivingLifePage::step() {
 
                     mapPullTotalImage = 
                         new Image( lrint(
-                                       ( 10 + mapPullEndX - mapPullStartX ) 
+                                       ( mapPullEndX - mapPullStartX ) 
                                        * CELL_D * scale ),
-                                   lrint( ( 6 + mapPullEndY - mapPullStartY ) 
+                                   lrint( ( mapPullEndY - mapPullStartY ) 
                                           * CELL_D * scale ),
                                    3, false );
                     numScreensWritten = 0;
