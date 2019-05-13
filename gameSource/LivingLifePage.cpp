@@ -1920,10 +1920,17 @@ int mapPullEndX = 10;
 int mapPullStartY = -10;
 int mapPullEndY = 10;
 
+int mapPullManyStartX = -10;
+int mapPullManyEndX = 10;
+int mapPullManyStartY = -10;
+int mapPullManyEndY = 10;
+
 int mapPullCurrentX;
 int mapPullCurrentY;
 int mapPullStrideX;
 int mapPullStrideY;
+int mapPullManyStrideX;
+int mapPullManyStrideY;
 char mapPullCurrentSaved = false;
 char mapPullCurrentSent = false;
 char mapPullModeFinalImage = false;
@@ -6402,17 +6409,59 @@ void LivingLifePage::draw( doublePair inViewCenter,
             mapPullCurrentSaved = true;
             
             if( mapPullModeFinalImage ) {
-                mapPullMode = false;
 
                 //writeTGAFile( "mapOut.tga", mapPullTotalImage );
-                writePNGFile( "mapOut.png", mapPullTotalImage );
-                delete mapPullTotalImage;
-                
-                // pull over
+                int tileX = (mapPullStartX - mapPullStrideX/2) / mapPullManyStrideX;
+                int tileY = (mapPullStartY - mapPullStrideY/2) / mapPullManyStrideY;
+                char *filename = 
+                    autoSprintf( "tiles/%d,%d.png", tileX, tileY );
+                writePNGFile( filename, mapPullTotalImage );
+                printf( "wrote %s\n", filename );
+                delete [] filename;
 
-                // auto-quit
-                printf( "Map pull done, auto-quitting game\n" );
-                quitGame();
+                mapPullStartX += mapPullManyStrideX;
+
+                if( mapPullStartX >= mapPullManyEndX ) {
+                    mapPullStartX = mapPullManyStartX;
+                    mapPullStartY += mapPullManyStrideY;
+
+                    if( mapPullStartY >= mapPullManyEndY ) {
+                        mapPullMode = false;
+                        }
+                    }
+                mapPullEndX = mapPullStartX + mapPullManyStrideX;
+                mapPullEndY = mapPullStartY + mapPullManyStrideY;
+                printf( "updated window %d,%d to %d,%d\n",
+                        mapPullStartX,
+                        mapPullStartY,
+                        mapPullEndX,
+                        mapPullEndY);
+                mapPullCurrentX = mapPullStartX + mapPullStrideX/2;
+                mapPullCurrentY = mapPullStartY + mapPullStrideY/2;
+                mapPullCurrentSaved = false;
+                mapPullCurrentSent = false;
+                mapPullModeFinalImage = false;
+
+
+                if( !mapPullMode ) {
+                    delete mapPullTotalImage;
+                    // pull over
+
+                    // auto-quit
+                    printf( "Map pull done, auto-quitting game\n" );
+                    quitGame();
+                    }
+                else {
+                    char *message = autoSprintf( "MAP %d %d#",
+                                                 sendX( mapPullCurrentX ),
+                                                 sendY( mapPullCurrentY ) );
+
+                    sendToServerSocket( message );
+               
+                    mapPullCurrentSent = true;
+
+                    delete [] message;
+                    }
                 }
             }
         
@@ -17323,13 +17372,54 @@ void LivingLifePage::step() {
                     SettingsManager::getIntSetting( "mapPullEndX", 10 );
                 mapPullEndY = 
                     SettingsManager::getIntSetting( "mapPullEndY", 10 );
-                
+
+                mapPullManyStartX = mapPullStartX;
+                mapPullManyStartY = mapPullStartY;
+                mapPullManyEndX = mapPullEndX;
+                mapPullManyEndY = mapPullEndY;
+
                 mapPullStrideX = lrint( screenW / CELL_D );
                 mapPullStrideY = lrint( screenH / CELL_D );
                 mapPullCurrentX = mapPullStartX + mapPullStrideX/2;
                 mapPullCurrentY = mapPullStartY + mapPullStrideY/2;
 
                 if( mapPullMode ) {
+                    int screenWidth, screenHeight;
+                    getScreenDimensions( &screenWidth, &screenHeight );
+
+                    double scale = screenWidth / (double)screenW;
+                    int manyWidth = lrint(
+                                       ( mapPullEndX - mapPullStartX ) 
+                                       * CELL_D * scale );
+                    //int manyHeight = lrint( ( mapPullEndY - mapPullStartY ) 
+                                          //* CELL_D * scale );
+                    int imageWidth = 256;
+                    int imageHeight = 256;
+
+                    int manyScale = manyWidth / imageWidth;
+
+                    mapPullManyStrideX = (mapPullManyEndX - mapPullManyStartX) / manyScale;
+                    mapPullManyStrideY = (mapPullManyEndY - mapPullManyStartY) / manyScale;
+                    mapPullEndX = mapPullManyStartX + mapPullManyStrideX;
+                    mapPullEndY = mapPullManyStartY + mapPullManyStrideY;
+                    printf( "many %d,%d to %d,%d + %d,%d\n",
+                            mapPullManyStartX,
+                            mapPullManyStartY,
+                            mapPullManyEndX,
+                            mapPullManyEndY,
+                            mapPullManyStrideX,
+                            mapPullManyStrideY);
+                    printf( "first window %d,%d to %d,%d\n",
+                            mapPullStartX,
+                            mapPullStartY,
+                            mapPullEndX,
+                            mapPullEndY);
+
+                    mapPullTotalImage = 
+                        new Image( imageWidth, imageHeight,
+                                   3, false );
+                    numScreensWritten = 0;
+
                     mMapGlobalOffset.x = mapPullCurrentX;
                     mMapGlobalOffset.y = mapPullCurrentY;
                     mMapGlobalOffsetSet = true;
@@ -17337,6 +17427,14 @@ void LivingLifePage::step() {
                     applyReceiveOffset( &mapPullCurrentX, &mapPullCurrentY );
                     applyReceiveOffset( &mapPullStartX, &mapPullStartY );
                     applyReceiveOffset( &mapPullEndX, &mapPullEndY );
+                    applyReceiveOffset( &mapPullManyStartX, &mapPullManyStartY );
+                    applyReceiveOffset( &mapPullManyEndX, &mapPullManyEndY );
+
+                    printf( "first window offset %d,%d to %d,%d\n",
+                            mapPullStartX,
+                            mapPullStartY,
+                            mapPullEndX,
+                            mapPullEndY);
                 
 
                     mapPullCurrentSaved = true;
@@ -17351,20 +17449,6 @@ void LivingLifePage::step() {
                     mapPullCurrentSent = true;
 
                     delete [] message;
-
-                    int screenWidth, screenHeight;
-                    getScreenDimensions( &screenWidth, &screenHeight );
-
-                    double scale = screenWidth / (double)screenW;
-
-                    mapPullTotalImage = 
-                        new Image( lrint(
-                                       ( mapPullEndX - mapPullStartX ) 
-                                       * CELL_D * scale ),
-                                   lrint( ( mapPullEndY - mapPullStartY ) 
-                                          * CELL_D * scale ),
-                                   3, false );
-                    numScreensWritten = 0;
                     }
                 }
             }
