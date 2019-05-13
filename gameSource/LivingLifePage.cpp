@@ -6412,9 +6412,25 @@ void LivingLifePage::draw( doublePair inViewCenter,
 
                 //writeTGAFile( "mapOut.tga", mapPullTotalImage );
                 int tileX = (mapPullStartX - mapPullStrideX/2) / mapPullManyStrideX;
-                int tileY = (mapPullStartY - mapPullStrideY/2) / mapPullManyStrideY;
+                int tileY = -(mapPullStartY + mapPullStrideY/2) / mapPullManyStrideY;
+
                 char *filename = 
-                    autoSprintf( "tiles/%d,%d.png", tileX, tileY );
+                    autoSprintf( "tiles/%d", tileX );
+
+                File dirFile( NULL, filename );
+
+                if( ! dirFile.exists() ) {
+                    char made = Directory::makeDirectory( &dirFile );
+                    if( !made ) {
+                        printf( "Failed to make directory %s\n",
+                                filename );
+                        }
+                    }
+
+                delete [] filename;
+
+                filename = 
+                    autoSprintf( "tiles/%d/%d.png", tileX, tileY );
                 writePNGFile( filename, mapPullTotalImage );
                 printf( "wrote %s\n", filename );
                 delete [] filename;
