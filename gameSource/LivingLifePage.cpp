@@ -4644,12 +4644,12 @@ void LivingLifePage::draw( doublePair inViewCenter,
         lrintf( lastScreenViewCenter.y / CELL_D ) - mMapOffsetY + mMapD/2;
     
     // more on left and right of screen to avoid wide object tops popping in
-    int xStart = gridCenterX - 7;
-    int xEnd = gridCenterX + 7;
+    int xStart = gridCenterX - 6;
+    int xEnd = gridCenterX + 6;
 
     // more on bottom of screen so that tall objects don't pop in
-    int yStart = gridCenterY - 6;
-    int yEnd = gridCenterY + 4;
+    int yStart = gridCenterY - 8;
+    int yEnd = gridCenterY + 5;
 
     if( xStart < 0 ) {
         xStart = 0;
@@ -4691,11 +4691,11 @@ void LivingLifePage::draw( doublePair inViewCenter,
     // tiles drawn on top).  However, given that we're not drawing anything
     // else out there, this should be okay from a performance standpoint.
 
-    int yStartFloor = gridCenterY - 4;
-    int yEndFloor = gridCenterY + 4;
+    int yStartFloor = gridCenterY - 5;
+    int yEndFloor = gridCenterY + 5;
 
-    int xStartFloor = gridCenterX - 6;
-    int xEndFloor = gridCenterX + 6;
+    int xStartFloor = gridCenterX - 5;
+    int xEndFloor = gridCenterX + 5;
 
     
 
@@ -5652,7 +5652,7 @@ void LivingLifePage::draw( doublePair inViewCenter,
             
 
               // debugging grid
-
+/*
             doublePair cellPos = { (double)screenX, (double)screenY };
 
             if( mMap[ mapI ] < 0 ) {
@@ -5708,8 +5708,8 @@ void LivingLifePage::draw( doublePair inViewCenter,
             
             delete [] yString;
             delete [] xString;
+*/
             }
-
         
         SimpleVector<ObjectAnimPack> heldToDrawOnTop;
 
@@ -6411,9 +6411,18 @@ void LivingLifePage::draw( doublePair inViewCenter,
             if( mapPullModeFinalImage ) {
 
                 //writeTGAFile( "mapOut.tga", mapPullTotalImage );
-                int zoom = 24 - mapPullManyStrideX/8;
-                int tileX = (mapPullStartX - mapPullStrideX/2) / mapPullManyStrideX;
-                int tileY = -(mapPullStartY + mapPullStrideY/2) / mapPullManyStrideY;
+                int zoom = 26 - log2(mapPullManyStrideX);
+                printf( "zoom %d\n", zoom );
+                int tileX = sendX(mapPullStartX) / mapPullManyStrideX;
+                printf( "tileX %d = %d / %d\n",
+                        tileX,
+                        mapPullStartX,
+                        mapPullManyStrideX);
+                int tileY = -sendY(mapPullEndY) / mapPullManyStrideY;
+                printf( "tileY %d = %d / %d\n",
+                        tileY,
+                        mapPullEndY,
+                        mapPullManyStrideY);
 
                 char *filename = 
                     autoSprintf( "tiles/%d", zoom );
@@ -17453,9 +17462,9 @@ void LivingLifePage::step() {
                                    3, false );
                     numScreensWritten = 0;
 
-                    mMapGlobalOffset.x = mapPullCurrentX;
-                    mMapGlobalOffset.y = mapPullCurrentY;
-                    mMapGlobalOffsetSet = true;
+                    //mMapGlobalOffset.x = mapPullCurrentX;
+                    //mMapGlobalOffset.y = mapPullCurrentY;
+                    //mMapGlobalOffsetSet = true;
                     
                     applyReceiveOffset( &mapPullCurrentX, &mapPullCurrentY );
                     applyReceiveOffset( &mapPullStartX, &mapPullStartY );
