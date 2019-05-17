@@ -284,7 +284,7 @@ SimpleVector<GridPos> *getSpeechPipesOut( int inIndex );
 int getMapObjectRaw( int inX, int inY );
 
 #include "minorGems/graphics/Image.h"
-void outputMapBiomeImage( int startX, int startY, Image& biomeIm );
+void outputMapBiomeImage( int startX, int startY, int stride, Image& biomeIm );
 
 
 // next landing strip in line, in round-the-world circuit across all

@@ -2473,17 +2473,19 @@ LivingLifePage::LivingLifePage()
     initMap();
 
 
-    mapPullManyStartX = -512;
-    mapPullManyStartY = -512;
-    mapPullManyEndX = 512;
-    mapPullManyEndY = 512;
+    int size = 4096;
+    mapPullManyStartX = -size;
+    mapPullManyStartY = -size;
+    mapPullManyEndX = size;
+    mapPullManyEndY = size;
+    int stride = 8;
 
     mapPullStartX = mapPullManyStartX;
     mapPullStartY = mapPullManyStartY;
     mapPullEndX = mapPullManyEndX;
     mapPullEndY = mapPullManyEndY;
 
-    int manyWidth = lrint(( mapPullEndX - mapPullStartX ));
+    int manyWidth = lrint(( mapPullEndX - mapPullStartX ) / stride );
     int imageWidth = 256;
     int imageHeight = 256;
 
@@ -2511,7 +2513,7 @@ LivingLifePage::LivingLifePage()
                        3, false );
 
     do {
-        outputMapBiomeImage( mapPullStartX, mapPullStartY, *mapPullTotalImage );
+        outputMapBiomeImage( mapPullStartX, mapPullStartY, stride, *mapPullTotalImage );
         outputMapTile( mapPullTotalImage, {0,0} );
     } while( nextMapTile() );
     quitGame();

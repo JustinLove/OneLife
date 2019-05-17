@@ -1267,7 +1267,7 @@ static int getBaseMap( int inX, int inY ) {
 #include "minorGems/io/file/File.h"
 #include "minorGems/system/Time.h"
 
-void outputMapBiomeImage( int startX, int startY, Image& biomeIm ) {
+void outputMapBiomeImage( int startX, int startY, int stride, Image& biomeIm ) {
     
     // output a chunk of the map as an image
     int w = biomeIm.getWidth();
@@ -1310,7 +1310,7 @@ void outputMapBiomeImage( int startX, int startY, Image& biomeIm ) {
         for( int x = 0; x<w; x++ ) {
 
             
-            int biomeInd = getMapBiomeIndex( startX + x, -(startY + y) );
+            int biomeInd = getMapBiomeIndex( startX + x*stride, -(startY + y*stride) );
             biomeIm.setColor( y * w + x,
                               biomeColors.getElementDirect( biomeInd ) );
             }
