@@ -68,6 +68,11 @@ emotion.cpp \
 Picker.cpp \
 PickableStatics.cpp \
 photos.cpp \
+../server/dbCommon.cpp \
+../server/kissdb.cpp \
+../server/lineardb3.cpp \
+../server/spiral.cpp \
+../server/map.cpp \
 
 
 GAME_GRAPHICS = \

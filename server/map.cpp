@@ -1,6 +1,6 @@
 #include "map.h"
 #include "HashTable.h"
-#include "monument.h"
+//#include "monument.h"
 
 // cell pixel dimension on client
 #define CELL_D 128
@@ -159,7 +159,7 @@ timeSec_t slowTime() {
 //#define MAP_TIMESEC slowTime()
 
 
-extern GridPos getClosestPlayerPos( int inX, int inY );
+//extern GridPos getClosestPlayerPos( int inX, int inY );
 
 
 
@@ -218,9 +218,9 @@ static int campRadius = 20;
 static float minEveCampRespawnAge = 60.0;
 
 
-extern int apocalypsePossible;
-extern char apocalypseTriggered;
-extern GridPos apocalypseLocation;
+//extern int apocalypsePossible;
+//extern char apocalypseTriggered;
+//extern GridPos apocalypseLocation;
 
 
 
@@ -1267,18 +1267,63 @@ static int getBaseMap( int inX, int inY ) {
 #include "minorGems/io/file/File.h"
 #include "minorGems/system/Time.h"
 
-void outputMapImage() {
+void outputMapBiomeImage( int startX, int startY, Image& biomeIm ) {
+    
+    // output a chunk of the map as an image
+    int w = biomeIm.getWidth();
+    int h = biomeIm.getHeight();
+
+    SimpleVector<Color> biomeColors;
+    
+    Color *c;
+    // 0
+    // green
+    c = Color::makeColorFromHSV( 89.0/360.0, 0.49, 0.67 );
+    biomeColors.push_back( *c );
+    // 1
+    // mountain
+    c = Color::makeColorFromHSV( 40.0/360.0, 0.16, 0.36 );
+    biomeColors.push_back( *c );
+    // 2
+    // arctic
+    c = Color::makeColorFromHSV( 0.0/360.0, 0.00, 1.0 );
+    biomeColors.push_back( *c );
+    // 3
+    // desert
+    c = Color::makeColorFromHSV( 37.0/360.0, 0.71, 0.62 );
+    biomeColors.push_back( *c );
+    // 4
+    // plains
+    c = Color::makeColorFromHSV( 36.0/360.0, 0.75, 0.90 );
+    biomeColors.push_back( *c );
+    // 5
+    // swamp
+    c = Color::makeColorFromHSV( 228.0/360.0, 0.47, 0.51 );
+    biomeColors.push_back( *c );
+    // 6
+    // jungle
+    c = Color::makeColorFromHSV( 92.0/360.0, 0.87, 0.36 );
+    biomeColors.push_back( *c );
+
+    for( int y = 0; y<h; y++ ) {
+        
+        for( int x = 0; x<w; x++ ) {
+
+            
+            int biomeInd = getMapBiomeIndex( startX + x, -(startY + y) );
+            biomeIm.setColor( y * w + x,
+                              biomeColors.getElementDirect( biomeInd ) );
+            }
+        }
+    }
+
+void outputMapObjectImage( int startX, int startY, int w, int h ) {
     
     // output a chunk of the map as an image
 
-    int w =  500;
-    int h = 500;
-    
     Image objIm( w, h, 3, true );
-    Image biomeIm( w, h, 3, true );
     
     SimpleVector<Color> objColors;
-    SimpleVector<Color> biomeColors;
     SimpleVector<int> objCounts;
     
     int totalCounts = 0;
@@ -1293,65 +1338,12 @@ void outputMapImage() {
         delete c;
         }
 
-    for( int j=0; j<numBiomes; j++ ) {        
-        Color *c = Color::makeColorFromHSV( (float)j / numBiomes, 1, 1 );
-        
-        biomeColors.push_back( *c );
-        }
-    
-    /*
-    double startTime = Time::getCurrentTime();
-    for( int y = 0; y<h; y++ ) {
-        
-        for( int x = 0; x<w; x++ ) {
-            // discard id output
-            // just invoking this to time it
-            getBaseMap( x, y );
-            }
-        }
-    
-    printf( "Generating %d map spots took %f sec\n",
-            w * h, Time::getCurrentTime() - startTime );
-    //exit(0);
-    
-    */
-
-
     for( int y = 0; y<h; y++ ) {
         
         for( int x = 0; x<w; x++ ) {
 
-            /*
-            // raw rand output and correlation test
-            uint32_t xHit = xxTweakedHash2D( x, y );
-            uint32_t yHit = xxTweakedHash2D( x+1, y+1 );
-            //uint32_t xHit = getXYRandom_test( x, y );
-            //uint32_t yHit = getXYRandom_test( x+1, y );
+            int id = getBaseMap( startX + x, - (startY + y) );
             
-            xHit = xHit % w;
-            yHit = yHit % h;
-            
-            double val = xxTweakedHash2D( x, y ) * oneOverIntMax;
-            
-            Color c = im.getColor( yHit * w + xHit );
-            c.r += 0.1;
-            c.g += 0.1;
-            c.b += 0.1;
-            
-            im.setColor( yHit * w + xHit, c );
-              
-            c.r = val;
-            c.g = val;
-            c.b = val;
-            
-            //im.setColor( y * w + x, c );
-            */
-            
-            
-            int id = getBaseMap( x, y );
-            
-            int biomeInd = getMapBiomeIndex( x, y );
-
             if( id > 0 ) {
                 for( int i=0; i<allNaturalMapIDs.size(); i++ ) {
                     if( allNaturalMapIDs.getElementDirect(i) == id ) {
@@ -1364,9 +1356,6 @@ void outputMapImage() {
                         }
                     }
                 }
-            
-            biomeIm.setColor( y * w + x,
-                              biomeColors.getElementDirect( biomeInd ) );
             }
         }
     
@@ -1397,16 +1386,8 @@ void outputMapImage() {
     TGAImageConverter converter;
     
     converter.formatImage( &objIm, &tgaStream );
-
-
-    File tgaBiomeFile( NULL, "mapBiomeOut.tga" );
-    FileOutputStream tgaBiomeStream( &tgaBiomeFile );
-    
-    converter.formatImage( &biomeIm, &tgaBiomeStream );
-    
-    exit(0);
+    //exit(0);
     }
-
 
 
 
@@ -2546,6 +2527,7 @@ char initMap() {
     else {
         printf( "No shutdownLongLineagePos.txt file exists\n" );
         
+        /*
         // look for longest monument log file
         // that has been touched in last 24 hours
         // (ignore spots that may have been culled)
@@ -2605,6 +2587,7 @@ char initMap() {
                         eveLocation.x, eveLocation.y );
                 }
             }
+            */
         }
     
 
@@ -3921,6 +3904,7 @@ static void dbPut( int inX, int inY, int inSlot, int inValue,
     
     
 
+    /*
     if( apocalypsePossible && inValue > 0 && inSlot == 0 && inSubCont == 0 ) {
         // a primary tile put
         // check if this triggers the apocalypse
@@ -3943,6 +3927,7 @@ static void dbPut( int inX, int inY, int inSlot, int inValue,
                             status );
             }
         }
+        */
     
     
 
@@ -4382,7 +4367,7 @@ int checkDecayObject( int inX, int inY, int inID ) {
 
                 if( t->move < 3 ) {
                     
-                    GridPos p = getClosestPlayerPos( inX, inY );
+                    GridPos p = {0,0}; //getClosestPlayerPos( inX, inY );
                     
                     double dX = (double)p.x - (double)inX;
                     double dY = (double)p.y - (double)inY;
@@ -6883,7 +6868,7 @@ doublePair computeRecentCampAve( int *outNumPosFound ) {
 
 
 
-extern char doesEveLineExist( int inEveID );
+//extern char doesEveLineExist( int inEveID );
 
 
 
@@ -6966,12 +6951,14 @@ void getEvePosition( const char *inEmail, int inID, int *outX, int *outY,
                     // timed out
                     reusePos = true;
                     }
+                /*
                 else if( ! doesEveLineExist( 
                              recentlyUsedPrimaryEvePositionPlayerIDs.
                              getElementDirect( p ) ) ) {
                     // eve line extinct
                     reusePos = true;
                     }
+                    */
 
                 if( reusePos ) {
                     recentlyUsedPrimaryEvePositions.

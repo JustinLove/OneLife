@@ -19,6 +19,8 @@
 
 #include "photos.h"
 
+#include "../server/map.h"
+
 
 #include "liveAnimationTriggers.h"
 
@@ -1950,6 +1952,81 @@ Image *mapPullTotalImage = NULL;
 int numScreensWritten = 0;
 
 
+void outputMapTile( Image* image, GridPos offset ) {
+    int zoom = 26 - log2(mapPullManyStrideX);
+    printf( "zoom %d\n", zoom );
+    int tileX = (mapPullStartX + offset.x)/ mapPullManyStrideX;
+    printf( "tileX %d = %d / %d\n",
+            tileX,
+            mapPullStartX,
+            mapPullManyStrideX);
+    //int tileY = -(mapPullEndY + offset.y) / mapPullManyStrideY;
+    int tileY = (mapPullStartY + offset.y) / mapPullManyStrideY;
+    printf( "tileY %d = %d / %d\n",
+            tileY,
+            mapPullEndY,
+            mapPullManyStrideY);
+
+    char *filename = 
+        autoSprintf( "tiles/%d", zoom );
+
+    File dirFile( NULL, filename );
+
+    if( ! dirFile.exists() ) {
+        char made = Directory::makeDirectory( &dirFile );
+        if( !made ) {
+            printf( "Failed to make directory %s\n",
+                    filename );
+            }
+        }
+
+    delete [] filename;
+
+
+    filename = 
+        autoSprintf( "tiles/%d/%d", zoom, tileX );
+
+    dirFile = File( NULL, filename );
+
+    if( ! dirFile.exists() ) {
+        char made = Directory::makeDirectory( &dirFile );
+        if( !made ) {
+            printf( "Failed to make directory %s\n",
+                    filename );
+            }
+        }
+
+    delete [] filename;
+
+    filename = 
+        autoSprintf( "tiles/%d/%d/%d.png", zoom, tileX, tileY );
+    writePNGFile( filename, mapPullTotalImage );
+    printf( "wrote %s\n", filename );
+    delete [] filename;
+    }
+
+bool nextMapTile() {
+    mapPullStartX += mapPullManyStrideX;
+
+    if( mapPullStartX >= mapPullManyEndX ) {
+        mapPullStartX = mapPullManyStartX;
+        mapPullStartY += mapPullManyStrideY;
+
+        if( mapPullStartY >= mapPullManyEndY ) {
+            return false;
+            }
+        }
+    mapPullEndX = mapPullStartX + mapPullManyStrideX;
+    mapPullEndY = mapPullStartY + mapPullManyStrideY;
+    printf( "updated window %d,%d to %d,%d\n",
+            mapPullStartX,
+            mapPullStartY,
+            mapPullEndX,
+            mapPullEndY);
+    return true;
+    }
+
+
 static int apocalypseInProgress = false;
 static double apocalypseDisplayProgress = 0;
 static double apocalypseDisplaySeconds = 6;
@@ -2281,7 +2358,6 @@ LivingLifePage::LivingLifePage()
     mLiveTutorialTriggerNumber = -1;
 
 
-
     mMap = new int[ mMapD * mMapD ];
     mMapBiomes = new int[ mMapD * mMapD ];
     mMapFloors = new int[ mMapD * mMapD ];
@@ -2392,6 +2468,53 @@ LivingLifePage::LivingLifePage()
     if( ! tutorialDone ) {
         mTutorialNumber = 1;
         }
+
+
+    initMap();
+
+
+    mapPullManyStartX = -512;
+    mapPullManyStartY = -512;
+    mapPullManyEndX = 512;
+    mapPullManyEndY = 512;
+
+    mapPullStartX = mapPullManyStartX;
+    mapPullStartY = mapPullManyStartY;
+    mapPullEndX = mapPullManyEndX;
+    mapPullEndY = mapPullManyEndY;
+
+    int manyWidth = lrint(( mapPullEndX - mapPullStartX ));
+    int imageWidth = 256;
+    int imageHeight = 256;
+
+    int manyScale = manyWidth / imageWidth;
+
+    mapPullManyStrideX = (mapPullManyEndX - mapPullManyStartX) / manyScale;
+    mapPullManyStrideY = (mapPullManyEndY - mapPullManyStartY) / manyScale;
+    mapPullEndX = mapPullManyStartX + mapPullManyStrideX;
+    mapPullEndY = mapPullManyStartY + mapPullManyStrideY;
+    printf( "many %d,%d to %d,%d + %d,%d\n",
+            mapPullManyStartX,
+            mapPullManyStartY,
+            mapPullManyEndX,
+            mapPullManyEndY,
+            mapPullManyStrideX,
+            mapPullManyStrideY);
+    printf( "first window %d,%d to %d,%d\n",
+            mapPullStartX,
+            mapPullStartY,
+            mapPullEndX,
+            mapPullEndY);
+
+    mapPullTotalImage = 
+        new Image( imageWidth, imageHeight,
+                       3, false );
+
+    do {
+        outputMapBiomeImage( mapPullStartX, mapPullStartY, *mapPullTotalImage );
+        outputMapTile( mapPullTotalImage, {0,0} );
+    } while( nextMapTile() );
+    quitGame();
     }
 
 
@@ -2484,6 +2607,7 @@ LivingLifePage::~LivingLifePage() {
     mPreviousHomeDistStrings.deallocateStringElements();
     mPreviousHomeDistFades.deleteAll();
 
+    freeMap();
     
     delete [] mMapAnimationFrameCount;
     delete [] mMapAnimationLastFrameCount;
@@ -6422,73 +6546,10 @@ void LivingLifePage::draw( doublePair inViewCenter,
             if( mapPullModeFinalImage ) {
 
                 //writeTGAFile( "mapOut.tga", mapPullTotalImage );
-                int zoom = 26 - log2(mapPullManyStrideX);
-                printf( "zoom %d\n", zoom );
-                int tileX = sendX(mapPullStartX) / mapPullManyStrideX;
-                printf( "tileX %d = %d / %d\n",
-                        tileX,
-                        mapPullStartX,
-                        mapPullManyStrideX);
-                int tileY = -sendY(mapPullEndY) / mapPullManyStrideY;
-                printf( "tileY %d = %d / %d\n",
-                        tileY,
-                        mapPullEndY,
-                        mapPullManyStrideY);
+                outputMapTile( mapPullTotalImage, mMapGlobalOffset );
 
-                char *filename = 
-                    autoSprintf( "tiles/%d", zoom );
+                mapPullMode = nextMapTile();
 
-                File dirFile( NULL, filename );
-
-                if( ! dirFile.exists() ) {
-                    char made = Directory::makeDirectory( &dirFile );
-                    if( !made ) {
-                        printf( "Failed to make directory %s\n",
-                                filename );
-                        }
-                    }
-
-                delete [] filename;
-
-
-                filename = 
-                    autoSprintf( "tiles/%d/%d", zoom, tileX );
-
-                dirFile = File( NULL, filename );
-
-                if( ! dirFile.exists() ) {
-                    char made = Directory::makeDirectory( &dirFile );
-                    if( !made ) {
-                        printf( "Failed to make directory %s\n",
-                                filename );
-                        }
-                    }
-
-                delete [] filename;
-
-                filename = 
-                    autoSprintf( "tiles/%d/%d/%d.png", zoom, tileX, tileY );
-                writePNGFile( filename, mapPullTotalImage );
-                printf( "wrote %s\n", filename );
-                delete [] filename;
-
-                mapPullStartX += mapPullManyStrideX;
-
-                if( mapPullStartX >= mapPullManyEndX ) {
-                    mapPullStartX = mapPullManyStartX;
-                    mapPullStartY += mapPullManyStrideY;
-
-                    if( mapPullStartY >= mapPullManyEndY ) {
-                        mapPullMode = false;
-                        }
-                    }
-                mapPullEndX = mapPullStartX + mapPullManyStrideX;
-                mapPullEndY = mapPullStartY + mapPullManyStrideY;
-                printf( "updated window %d,%d to %d,%d\n",
-                        mapPullStartX,
-                        mapPullStartY,
-                        mapPullEndX,
-                        mapPullEndY);
                 mapPullCurrentX = mapPullStartX + mapPullStrideX/2;
                 mapPullCurrentY = mapPullStartY + mapPullStrideY/2;
                 mapPullCurrentSaved = false;
