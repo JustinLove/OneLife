@@ -1961,8 +1961,7 @@ void outputMapTile( Image* image, GridPos offset ) {
             tileX,
             mapPullStartX,
             mapPullManyStrideX);
-    //int tileY = -(mapPullEndY + offset.y) / mapPullManyStrideY;
-    int tileY = (mapPullStartY + offset.y) / mapPullManyStrideY;
+    int tileY = -(mapPullEndY + offset.y) / mapPullManyStrideY;
     printf( "tileY %d = %d / %d\n",
             tileY,
             mapPullEndY,
@@ -2471,14 +2470,13 @@ LivingLifePage::LivingLifePage()
         }
 
 
-    initMap();
-
-
-    mapPullMode = 
+    int mapPull = 
         SettingsManager::getIntSetting( "mapPullMode", 0 );
     mapPullZoom = SettingsManager::getIntSetting( "mapPullZoom", 23 );
 
-    if( mapPullMode && mapPullZoom <= 18 ) {
+    initMap();
+
+    if( mapPull && mapPullZoom <= 18 ) {
         int stride = pow( 2, 18 - mapPullZoom);
 
         mapPullManyStartX = SettingsManager::getIntSetting( "mapPullStartX", -10 );
