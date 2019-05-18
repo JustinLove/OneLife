@@ -1937,6 +1937,7 @@ int mapPullManyStartX = -10;
 int mapPullManyEndX = 10;
 int mapPullManyStartY = -10;
 int mapPullManyEndY = 10;
+int mapPullZoom = 23;
 
 int mapPullCurrentX;
 int mapPullCurrentY;
@@ -2473,50 +2474,61 @@ LivingLifePage::LivingLifePage()
     initMap();
 
 
-    int size = 4096;
-    mapPullManyStartX = -size;
-    mapPullManyStartY = -size;
-    mapPullManyEndX = size;
-    mapPullManyEndY = size;
-    int stride = 8;
+    mapPullMode = 
+        SettingsManager::getIntSetting( "mapPullMode", 0 );
+    mapPullZoom = SettingsManager::getIntSetting( "mapPullZoom", 23 );
 
-    mapPullStartX = mapPullManyStartX;
-    mapPullStartY = mapPullManyStartY;
-    mapPullEndX = mapPullManyEndX;
-    mapPullEndY = mapPullManyEndY;
+    if( mapPullMode && mapPullZoom <= 18 ) {
+        int stride = pow( 2, 18 - mapPullZoom);
 
-    int manyWidth = lrint(( mapPullEndX - mapPullStartX ) / stride );
-    int imageWidth = 256;
-    int imageHeight = 256;
+        mapPullManyStartX = SettingsManager::getIntSetting( "mapPullStartX", -10 );
+        mapPullManyStartY = SettingsManager::getIntSetting( "mapPullStartY", -10 );
+        mapPullManyEndX = SettingsManager::getIntSetting( "mapPullEndX", 10 );
+        mapPullManyEndY = SettingsManager::getIntSetting( "mapPullEndY", 10 );
 
-    int manyScale = manyWidth / imageWidth;
+        mapPullStartX = mapPullManyStartX;
+        mapPullStartY = mapPullManyStartY;
+        mapPullEndX = mapPullManyEndX;
+        mapPullEndY = mapPullManyEndY;
 
-    mapPullManyStrideX = (mapPullManyEndX - mapPullManyStartX) / manyScale;
-    mapPullManyStrideY = (mapPullManyEndY - mapPullManyStartY) / manyScale;
-    mapPullEndX = mapPullManyStartX + mapPullManyStrideX;
-    mapPullEndY = mapPullManyStartY + mapPullManyStrideY;
-    printf( "many %d,%d to %d,%d + %d,%d\n",
-            mapPullManyStartX,
-            mapPullManyStartY,
-            mapPullManyEndX,
-            mapPullManyEndY,
-            mapPullManyStrideX,
-            mapPullManyStrideY);
-    printf( "first window %d,%d to %d,%d\n",
-            mapPullStartX,
-            mapPullStartY,
-            mapPullEndX,
-            mapPullEndY);
+        int manyWidth = lrint(( mapPullEndX - mapPullStartX ) / stride );
+        printf( "%d - %d / %d = %d\n",
+                mapPullEndX,
+                mapPullStartX,
+                stride,
+                manyWidth );
+        int imageWidth = 256;
+        int imageHeight = 256;
 
-    mapPullTotalImage = 
-        new Image( imageWidth, imageHeight,
-                       3, false );
+        int manyScale = manyWidth / imageWidth;
 
-    do {
-        outputMapBiomeImage( mapPullStartX, mapPullStartY, stride, *mapPullTotalImage );
-        outputMapTile( mapPullTotalImage, {0,0} );
-    } while( nextMapTile() );
-    quitGame();
+        mapPullManyStrideX = (mapPullManyEndX - mapPullManyStartX) / manyScale;
+        mapPullManyStrideY = (mapPullManyEndY - mapPullManyStartY) / manyScale;
+        mapPullEndX = mapPullManyStartX + mapPullManyStrideX;
+        mapPullEndY = mapPullManyStartY + mapPullManyStrideY;
+        printf( "many %d,%d to %d,%d + %d,%d\n",
+                mapPullManyStartX,
+                mapPullManyStartY,
+                mapPullManyEndX,
+                mapPullManyEndY,
+                mapPullManyStrideX,
+                mapPullManyStrideY);
+        printf( "first window %d,%d to %d,%d\n",
+                mapPullStartX,
+                mapPullStartY,
+                mapPullEndX,
+                mapPullEndY);
+
+        mapPullTotalImage = 
+            new Image( imageWidth, imageHeight,
+                           3, false );
+
+        do {
+            outputMapBiomeImage( mapPullStartX, mapPullStartY, stride, *mapPullTotalImage );
+            outputMapTile( mapPullTotalImage, {0,0} );
+            } while( nextMapTile() );
+        quitGame();
+        }
     }
 
 
