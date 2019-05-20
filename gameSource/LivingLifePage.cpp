@@ -2027,6 +2027,8 @@ bool nextMapTile() {
     }
 
 
+
+
 static int apocalypseInProgress = false;
 static double apocalypseDisplayProgress = 0;
 static double apocalypseDisplaySeconds = 6;
@@ -2119,6 +2121,412 @@ void LivingLifePage::clearMap() {
         mMapPlayerPlacedFlags[i] = false;
         }
     }
+
+
+
+void LivingLifePage::fillMapChunk() {
+    int sizeX = 32;
+    int sizeY = 30;
+    int worldStartX = sendX( mapPullCurrentX ) - sizeX/2;
+    int worldStartY = sendY( mapPullCurrentY ) - sizeY/2;
+    int x = worldStartX;
+    int y = worldStartY;
+
+    printf( "fillMapChunk %d,%d -> %d,%d -> %d,%d\n",
+            mapPullCurrentX, mapPullCurrentY,
+            sendX( mapPullCurrentX ), sendY( mapPullCurrentY ),
+            x, y );
+    
+    if( ! mMapGlobalOffsetSet ) {
+        
+        // we need 7 fraction bits to represent 128 pixels per tile
+        // 32-bit float has 23 significant bits, not counting sign
+        // that leaves 16 bits for tile coordinate, or 65,536
+        // Give two extra bits of wiggle room
+        int maxOK = 16384;
+        
+        if( x < maxOK &&
+            x > -maxOK &&
+            y < maxOK &&
+            y > -maxOK ) {
+            printf( "First chunk isn't too far from center, using "
+                    "0,0 as our global offset\n" );
+            
+            mMapGlobalOffset.x = 0;
+            mMapGlobalOffset.y = 0;
+            mMapGlobalOffsetSet = true;
+            }
+        else {
+            printf( 
+                "Using this first chunk center as our global offset:  "
+                "%d, %d\n", x, y );
+            mMapGlobalOffset.x = x;
+            mMapGlobalOffset.y = y;
+            mMapGlobalOffsetSet = true;
+            }
+        }
+    
+    applyReceiveOffset( &x, &y );
+    
+    // recenter our in-ram sub-map around this new chunk
+    int newMapOffsetX = x + sizeX/2;
+    int newMapOffsetY = y + sizeY/2;
+    
+    // move old cached map cells over to line up with new center
+
+    int xMove = mMapOffsetX - newMapOffsetX;
+    int yMove = mMapOffsetY - newMapOffsetY;
+    
+    int *newMap = new int[ mMapD * mMapD ];
+    int *newMapBiomes = new int[ mMapD * mMapD ];
+    int *newMapFloors = new int[ mMapD * mMapD ];
+    
+
+    double *newMapAnimationFrameCount = new double[ mMapD * mMapD ];
+    double *newMapAnimationLastFrameCount = new double[ mMapD * mMapD ];
+
+    double *newMapAnimationFrozenRotFameCount = 
+        new double[ mMapD * mMapD ];
+
+    char *newMapAnimationFrozenRotFameCountUsed = 
+        new char[ mMapD * mMapD ];
+
+    int *newMapFloorAnimationFrameCount = new int[ mMapD * mMapD ];
+
+    AnimType *newMapCurAnimType = new AnimType[ mMapD * mMapD ];
+    AnimType *newMapLastAnimType = new AnimType[ mMapD * mMapD ];
+    double *newMapLastAnimFade = new double[ mMapD * mMapD ];
+    
+    doublePair *newMapDropOffsets = new doublePair[ mMapD * mMapD ];
+    double *newMapDropRot = new double[ mMapD * mMapD ];
+    SoundUsage *newMapDropSounds = new SoundUsage[ mMapD * mMapD ];
+
+    doublePair *newMapMoveOffsets = new doublePair[ mMapD * mMapD ];
+    double *newMapMoveSpeeds = new double[ mMapD * mMapD ];
+
+
+    char *newMapTileFlips= new char[ mMapD * mMapD ];
+    
+    SimpleVector<int> *newMapContainedStacks = 
+        new SimpleVector<int>[ mMapD * mMapD ];
+    
+    SimpleVector< SimpleVector<int> > *newMapSubContainedStacks = 
+        new SimpleVector< SimpleVector<int> >[ mMapD * mMapD ];
+
+    char *newMapPlayerPlacedFlags = new char[ mMapD * mMapD ];
+
+    
+    for( int i=0; i<mMapD *mMapD; i++ ) {
+        // starts uknown, not empty
+        newMap[i] = -1;
+        newMapBiomes[i] = -1;
+        newMapFloors[i] = -1;
+
+        int newX = i % mMapD;
+        int newY = i / mMapD;
+
+        int worldX = newX + mMapOffsetX - mMapD / 2;
+        int worldY = newY + mMapOffsetY - mMapD / 2;
+        
+        // each cell is different, but always the same
+        newMapAnimationFrameCount[i] =
+            lrint( getXYRandom( worldX, worldY ) * 10000 );
+        newMapAnimationLastFrameCount[i] =
+            newMapAnimationFrameCount[i];
+        
+        newMapAnimationFrozenRotFameCount[i] = 0;
+        newMapAnimationFrozenRotFameCountUsed[i] = false;
+        
+        newMapFloorAnimationFrameCount[i] =
+            lrint( getXYRandom( worldX, worldY ) * 13853 );
+        
+        
+
+        newMapCurAnimType[i] = ground;
+        newMapLastAnimType[i] = ground;
+        newMapLastAnimFade[i] = 0;
+        newMapDropOffsets[i].x = 0;
+        newMapDropOffsets[i].y = 0;
+        newMapDropRot[i] = 0;
+        
+        newMapDropSounds[i] = blankSoundUsage;
+        
+        newMapMoveOffsets[i].x = 0;
+        newMapMoveOffsets[i].y = 0;
+        newMapMoveSpeeds[i] = 0;
+
+        newMapTileFlips[i] = false;
+        newMapPlayerPlacedFlags[i] = false;
+        
+
+        
+        int oldX = newX - xMove;
+        int oldY = newY - yMove;
+        
+        if( oldX >= 0 && oldX < mMapD
+            &&
+            oldY >= 0 && oldY < mMapD ) {
+            
+            int oI = oldY * mMapD + oldX;
+
+            newMap[i] = mMap[oI];
+            newMapBiomes[i] = mMapBiomes[oI];
+            newMapFloors[i] = mMapFloors[oI];
+
+            newMapAnimationFrameCount[i] = mMapAnimationFrameCount[oI];
+            newMapAnimationLastFrameCount[i] = 
+                mMapAnimationLastFrameCount[oI];
+
+            newMapAnimationFrozenRotFameCount[i] = 
+                mMapAnimationFrozenRotFrameCount[oI];
+
+            newMapAnimationFrozenRotFameCountUsed[i] = 
+                mMapAnimationFrozenRotFrameCountUsed[oI];
+
+            newMapFloorAnimationFrameCount[i] = 
+                mMapFloorAnimationFrameCount[oI];
+            
+            newMapCurAnimType[i] = mMapCurAnimType[oI];
+            newMapLastAnimType[i] = mMapLastAnimType[oI];
+            newMapLastAnimFade[i] = mMapLastAnimFade[oI];
+            newMapDropOffsets[i] = mMapDropOffsets[oI];
+            newMapDropRot[i] = mMapDropRot[oI];
+            newMapDropSounds[i] = mMapDropSounds[oI];
+
+            newMapMoveOffsets[i] = mMapMoveOffsets[oI];
+            newMapMoveSpeeds[i] = mMapMoveSpeeds[oI];
+
+            newMapTileFlips[i] = mMapTileFlips[oI];
+            
+
+            newMapContainedStacks[i] = mMapContainedStacks[oI];
+            newMapSubContainedStacks[i] = mMapSubContainedStacks[oI];
+
+            newMapPlayerPlacedFlags[i] = 
+                mMapPlayerPlacedFlags[oI];
+            }
+        }
+    
+    memcpy( mMap, newMap, mMapD * mMapD * sizeof( int ) );
+    memcpy( mMapBiomes, newMapBiomes, mMapD * mMapD * sizeof( int ) );
+    memcpy( mMapFloors, newMapFloors, mMapD * mMapD * sizeof( int ) );
+
+    memcpy( mMapAnimationFrameCount, newMapAnimationFrameCount, 
+            mMapD * mMapD * sizeof( double ) );
+    memcpy( mMapAnimationLastFrameCount, 
+            newMapAnimationLastFrameCount, 
+            mMapD * mMapD * sizeof( double ) );
+
+    memcpy( mMapAnimationFrozenRotFrameCount, 
+            newMapAnimationFrozenRotFameCount, 
+            mMapD * mMapD * sizeof( double ) );
+
+    memcpy( mMapAnimationFrozenRotFrameCountUsed, 
+            newMapAnimationFrozenRotFameCountUsed, 
+            mMapD * mMapD * sizeof( char ) );
+
+    
+    memcpy( mMapFloorAnimationFrameCount, 
+            newMapFloorAnimationFrameCount, 
+            mMapD * mMapD * sizeof( int ) );
+
+    
+    memcpy( mMapCurAnimType, newMapCurAnimType, 
+            mMapD * mMapD * sizeof( AnimType ) );
+    memcpy( mMapLastAnimType, newMapLastAnimType,
+            mMapD * mMapD * sizeof( AnimType ) );
+    memcpy( mMapLastAnimFade, newMapLastAnimFade,
+            mMapD * mMapD * sizeof( double ) );
+    memcpy( mMapDropOffsets, newMapDropOffsets,
+            mMapD * mMapD * sizeof( doublePair ) );
+    memcpy( mMapDropRot, newMapDropRot,
+            mMapD * mMapD * sizeof( double ) );
+    memcpy( mMapDropSounds, newMapDropSounds,
+            mMapD * mMapD * sizeof( SoundUsage ) );
+
+    memcpy( mMapMoveOffsets, newMapMoveOffsets,
+            mMapD * mMapD * sizeof( doublePair ) );
+    memcpy( mMapMoveSpeeds, newMapMoveSpeeds,
+            mMapD * mMapD * sizeof( double ) );
+
+    
+    memcpy( mMapTileFlips, newMapTileFlips,
+            mMapD * mMapD * sizeof( char ) );
+    
+    // can't memcpy vectors
+    // need to assign them so copy constructors are invoked
+    for( int i=0; i<mMapD *mMapD; i++ ) {
+        mMapContainedStacks[i] = newMapContainedStacks[i];
+        mMapSubContainedStacks[i] = newMapSubContainedStacks[i];
+        }
+    
+
+    memcpy( mMapPlayerPlacedFlags, newMapPlayerPlacedFlags,
+            mMapD * mMapD * sizeof( char ) );
+    
+    delete [] newMap;
+    delete [] newMapBiomes;
+    delete [] newMapFloors;
+    delete [] newMapAnimationFrameCount;
+    delete [] newMapAnimationLastFrameCount;
+    delete [] newMapAnimationFrozenRotFameCount;
+    delete [] newMapAnimationFrozenRotFameCountUsed;
+    delete [] newMapFloorAnimationFrameCount;
+    
+    delete [] newMapCurAnimType;
+    delete [] newMapLastAnimType;
+    delete [] newMapLastAnimFade;
+    delete [] newMapDropOffsets;
+    delete [] newMapDropRot;
+    delete [] newMapDropSounds;
+
+    delete [] newMapMoveOffsets;
+    delete [] newMapMoveSpeeds;
+    
+    delete [] newMapTileFlips;
+    delete [] newMapContainedStacks;
+    delete [] newMapSubContainedStacks;
+    
+    delete [] newMapPlayerPlacedFlags;
+    
+    
+
+    mMapOffsetX = newMapOffsetX;
+    mMapOffsetY = newMapOffsetY;
+    
+    
+    for( int cY = 0; cY < sizeY; cY++ ) {
+        for( int cX = 0; cX < sizeX; cX++ ) {
+            int mapX = cX + x - mMapOffsetX + mMapD / 2;
+            int mapY = cY + y - mMapOffsetY + mMapD / 2;
+            
+            if( mapX >= 0 && mapX < mMapD
+                &&
+                mapY >= 0 && mapY < mMapD ) {
+                
+                
+                int mapI = mapY * mMapD + mapX;
+                int oldMapID = mMap[mapI];
+
+                int worldX = cX + worldStartX;
+                int worldY = cY + worldStartY;
+
+                mMap[mapI] = hideIDForClient( getMapObject( worldX, worldY ) );
+                mMapBiomes[mapI] = getMapBiome( worldX, worldY );
+                mMapFloors[mapI] = hideIDForClient( getMapFloor( worldX, worldY ) );
+
+                if( mMap[mapI] != oldMapID ) {
+                    // our placement status cleared
+                    mMapPlayerPlacedFlags[mapI] = false;
+                    }
+                }
+            }
+        }
+        
+    mFirstServerMessagesReceived |= 1;
+
+    lastScreenViewCenter.x = mapPullCurrentX * CELL_D + CELL_D/2;
+    lastScreenViewCenter.y = mapPullCurrentY * CELL_D - CELL_D/2;
+    setViewCenterPosition( lastScreenViewCenter.x,
+                           lastScreenViewCenter.y );
+    printf( "updating screen %d,%d %f,%f\n", mapPullCurrentX, mapPullCurrentY, lastScreenViewCenter.x, lastScreenViewCenter.y );
+    
+    mapPullCurrentX += mapPullStrideX;
+    
+    if( mapPullCurrentX > mapPullEndX ) {
+        mapPullCurrentX = mapPullStartX + mapPullStrideX/2;
+        mapPullCurrentY += mapPullStrideY;
+        
+        if( mapPullCurrentY > mapPullEndY ) {
+            mapPullModeFinalImage = true;
+            }
+        }
+    mapPullCurrentSaved = false;
+    mapPullCurrentSent = false;
+    printf( "fillMapChunk end %d,%d\n", x, y );
+    }
+
+void LivingLifePage::initScreenshotMapPull() {
+    mapPullMode = 
+        SettingsManager::getIntSetting( "mapPullMode", 0 );
+    mapPullStartX = 
+        SettingsManager::getIntSetting( "mapPullStartX", -10 );
+    mapPullStartY = 
+        SettingsManager::getIntSetting( "mapPullStartY", -10 );
+    mapPullEndX = 
+        SettingsManager::getIntSetting( "mapPullEndX", 10 );
+    mapPullEndY = 
+        SettingsManager::getIntSetting( "mapPullEndY", 10 );
+
+    mapPullManyStartX = mapPullStartX;
+    mapPullManyStartY = mapPullStartY;
+    mapPullManyEndX = mapPullEndX;
+    mapPullManyEndY = mapPullEndY;
+
+    mapPullStrideX = lrint( screenW / CELL_D );
+    mapPullStrideY = lrint( screenH / CELL_D );
+    mapPullCurrentX = mapPullStartX + mapPullStrideX/2;
+    mapPullCurrentY = mapPullStartY + mapPullStrideY/2;
+    }
+
+void LivingLifePage::beginScreenshotMapPull() {
+
+    int screenWidth, screenHeight;
+    getScreenDimensions( &screenWidth, &screenHeight );
+
+    double scale = screenWidth / (double)screenW;
+    int manyWidth = lrint(
+                       ( mapPullEndX - mapPullStartX ) 
+                       * CELL_D * scale );
+    //int manyHeight = lrint( ( mapPullEndY - mapPullStartY ) 
+                          //* CELL_D * scale );
+    int imageWidth = 256;
+    int imageHeight = 256;
+
+    int manyScale = manyWidth / imageWidth;
+
+    mapPullManyStrideX = (mapPullManyEndX - mapPullManyStartX) / manyScale;
+    mapPullManyStrideY = (mapPullManyEndY - mapPullManyStartY) / manyScale;
+    mapPullEndX = mapPullManyStartX + mapPullManyStrideX;
+    mapPullEndY = mapPullManyStartY + mapPullManyStrideY;
+    printf( "many %d,%d to %d,%d + %d,%d\n",
+            mapPullManyStartX,
+            mapPullManyStartY,
+            mapPullManyEndX,
+            mapPullManyEndY,
+            mapPullManyStrideX,
+            mapPullManyStrideY);
+    printf( "first window %d,%d to %d,%d\n",
+            mapPullStartX,
+            mapPullStartY,
+            mapPullEndX,
+            mapPullEndY);
+
+    mapPullTotalImage = 
+        new Image( imageWidth, imageHeight,
+                   3, false );
+    numScreensWritten = 0;
+
+    mMapGlobalOffset.x = mapPullCurrentX;
+    mMapGlobalOffset.y = mapPullCurrentY;
+    mMapGlobalOffsetSet = true;
+    
+    applyReceiveOffset( &mapPullCurrentX, &mapPullCurrentY );
+    applyReceiveOffset( &mapPullStartX, &mapPullStartY );
+    applyReceiveOffset( &mapPullEndX, &mapPullEndY );
+    applyReceiveOffset( &mapPullManyStartX, &mapPullManyStartY );
+    applyReceiveOffset( &mapPullManyEndX, &mapPullManyEndY );
+
+    printf( "first window offset %d,%d to %d,%d\n",
+            mapPullStartX,
+            mapPullStartY,
+            mapPullEndX,
+            mapPullEndY);
+
+
+    mapPullCurrentSaved = true;
+    mapPullModeFinalImage = false;
+}
 
 
 
@@ -2476,18 +2884,19 @@ LivingLifePage::LivingLifePage()
 
     initMap();
 
+    mapPullManyStartX = SettingsManager::getIntSetting( "mapPullStartX", -10 );
+    mapPullManyStartY = SettingsManager::getIntSetting( "mapPullStartY", -10 );
+    mapPullManyEndX = SettingsManager::getIntSetting( "mapPullEndX", 10 );
+    mapPullManyEndY = SettingsManager::getIntSetting( "mapPullEndY", 10 );
+
+    mapPullStartX = mapPullManyStartX;
+    mapPullStartY = mapPullManyStartY;
+    mapPullEndX = mapPullManyEndX;
+    mapPullEndY = mapPullManyEndY;
+
+
     if( mapPull && mapPullZoom <= 18 ) {
         int stride = pow( 2, 18 - mapPullZoom);
-
-        mapPullManyStartX = SettingsManager::getIntSetting( "mapPullStartX", -10 );
-        mapPullManyStartY = SettingsManager::getIntSetting( "mapPullStartY", -10 );
-        mapPullManyEndX = SettingsManager::getIntSetting( "mapPullEndX", 10 );
-        mapPullManyEndY = SettingsManager::getIntSetting( "mapPullEndY", 10 );
-
-        mapPullStartX = mapPullManyStartX;
-        mapPullStartY = mapPullManyStartY;
-        mapPullEndX = mapPullManyEndX;
-        mapPullEndY = mapPullManyEndY;
 
         int manyWidth = lrint(( mapPullEndX - mapPullStartX ) / stride );
         printf( "%d - %d / %d = %d\n",
@@ -2525,6 +2934,17 @@ LivingLifePage::LivingLifePage()
             outputMapBiomeImage( mapPullStartX, mapPullStartY, stride, *mapPullTotalImage );
             outputMapTile( mapPullTotalImage, {0,0} );
             } while( nextMapTile() );
+        quitGame();
+        }
+
+    if( mapPull && mapPullZoom > 18 ) {
+        initScreenshotMapPull();
+        beginScreenshotMapPull();
+        mFirstServerMessagesReceived = 3;
+        do {
+            fillMapChunk();
+            draw( lastScreenViewCenter, viewWidth );
+            } while( mapPullMode );
         quitGame();
         }
     }
@@ -6498,10 +6918,10 @@ void LivingLifePage::draw( doublePair inViewCenter,
     
     if( mapPullMode ) {
         
-        float progress;
+        //float progress;
         
-        if( ! mapPullCurrentSaved && 
-            isLiveObjectSetFullyLoaded( &progress ) ) {
+        if( ! mapPullCurrentSaved ) { //&& 
+            //isLiveObjectSetFullyLoaded( &progress ) ) {
             
             int screenWidth, screenHeight;
             getScreenDimensions( &screenWidth, &screenHeight );
@@ -6578,6 +6998,7 @@ void LivingLifePage::draw( doublePair inViewCenter,
                     quitGame();
                     }
                 else {
+                    /*
                     char *message = autoSprintf( "MAP %d %d#",
                                                  sendX( mapPullCurrentX ),
                                                  sendY( mapPullCurrentY ) );
@@ -6587,6 +7008,7 @@ void LivingLifePage::draw( doublePair inViewCenter,
                     mapPullCurrentSent = true;
 
                     delete [] message;
+                    */
                     }
                 }
             }
@@ -16467,6 +16889,8 @@ void LivingLifePage::step() {
     
 
     if( mapPullMode && mapPullCurrentSaved && ! mapPullCurrentSent ) {
+        beginScreenshotMapPull();
+
         char *message = autoSprintf( "MAP %d %d#",
                                      sendX( mapPullCurrentX ),
                                      sendY( mapPullCurrentY ) );
@@ -17491,83 +17915,9 @@ void LivingLifePage::step() {
                 setViewCenterPosition( lastScreenViewCenter.x, 
                                        lastScreenViewCenter.y );
 
-                mapPullMode = 
-                    SettingsManager::getIntSetting( "mapPullMode", 0 );
-                mapPullStartX = 
-                    SettingsManager::getIntSetting( "mapPullStartX", -10 );
-                mapPullStartY = 
-                    SettingsManager::getIntSetting( "mapPullStartY", -10 );
-                mapPullEndX = 
-                    SettingsManager::getIntSetting( "mapPullEndX", 10 );
-                mapPullEndY = 
-                    SettingsManager::getIntSetting( "mapPullEndY", 10 );
-
-                mapPullManyStartX = mapPullStartX;
-                mapPullManyStartY = mapPullStartY;
-                mapPullManyEndX = mapPullEndX;
-                mapPullManyEndY = mapPullEndY;
-
-                mapPullStrideX = lrint( screenW / CELL_D );
-                mapPullStrideY = lrint( screenH / CELL_D );
-                mapPullCurrentX = mapPullStartX + mapPullStrideX/2;
-                mapPullCurrentY = mapPullStartY + mapPullStrideY/2;
+                initScreenshotMapPull();
 
                 if( mapPullMode ) {
-                    int screenWidth, screenHeight;
-                    getScreenDimensions( &screenWidth, &screenHeight );
-
-                    double scale = screenWidth / (double)screenW;
-                    int manyWidth = lrint(
-                                       ( mapPullEndX - mapPullStartX ) 
-                                       * CELL_D * scale );
-                    //int manyHeight = lrint( ( mapPullEndY - mapPullStartY ) 
-                                          //* CELL_D * scale );
-                    int imageWidth = 256;
-                    int imageHeight = 256;
-
-                    int manyScale = manyWidth / imageWidth;
-
-                    mapPullManyStrideX = (mapPullManyEndX - mapPullManyStartX) / manyScale;
-                    mapPullManyStrideY = (mapPullManyEndY - mapPullManyStartY) / manyScale;
-                    mapPullEndX = mapPullManyStartX + mapPullManyStrideX;
-                    mapPullEndY = mapPullManyStartY + mapPullManyStrideY;
-                    printf( "many %d,%d to %d,%d + %d,%d\n",
-                            mapPullManyStartX,
-                            mapPullManyStartY,
-                            mapPullManyEndX,
-                            mapPullManyEndY,
-                            mapPullManyStrideX,
-                            mapPullManyStrideY);
-                    printf( "first window %d,%d to %d,%d\n",
-                            mapPullStartX,
-                            mapPullStartY,
-                            mapPullEndX,
-                            mapPullEndY);
-
-                    mapPullTotalImage = 
-                        new Image( imageWidth, imageHeight,
-                                   3, false );
-                    numScreensWritten = 0;
-
-                    //mMapGlobalOffset.x = mapPullCurrentX;
-                    //mMapGlobalOffset.y = mapPullCurrentY;
-                    //mMapGlobalOffsetSet = true;
-                    
-                    applyReceiveOffset( &mapPullCurrentX, &mapPullCurrentY );
-                    applyReceiveOffset( &mapPullStartX, &mapPullStartY );
-                    applyReceiveOffset( &mapPullEndX, &mapPullEndY );
-                    applyReceiveOffset( &mapPullManyStartX, &mapPullManyStartY );
-                    applyReceiveOffset( &mapPullManyEndX, &mapPullManyEndY );
-
-                    printf( "first window offset %d,%d to %d,%d\n",
-                            mapPullStartX,
-                            mapPullStartY,
-                            mapPullEndX,
-                            mapPullEndY);
-                
-
-                    mapPullCurrentSaved = true;
-                    mapPullModeFinalImage = false;
                     
                     char *message = autoSprintf( "MAP %d %d#",
                                                  sendX( mapPullCurrentX ),

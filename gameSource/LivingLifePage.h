@@ -422,6 +422,9 @@ class LivingLifePage : public GamePage, public ActionListener {
         ~LivingLifePage();
         
         void clearMap();
+        void fillMapChunk();
+        void initScreenshotMapPull();
+        void beginScreenshotMapPull();
         
         // enabled tutorail next time a connection loads
         void runTutorial();
