@@ -1943,8 +1943,8 @@ int mapPullCurrentX;
 int mapPullCurrentY;
 int mapPullStrideX;
 int mapPullStrideY;
-int mapPullManyStrideX;
-int mapPullManyStrideY;
+int mapPullTileWidth;
+int mapPullTileHeight;
 char mapPullCurrentSaved = false;
 char mapPullCurrentSent = false;
 char mapPullModeFinalImage = false;
@@ -1954,18 +1954,18 @@ int numScreensWritten = 0;
 
 
 void outputMapTile( Image* image, GridPos offset ) {
-    int zoom = 26 - log2(mapPullManyStrideX);
+    int zoom = 26 - log2(mapPullTileWidth);
     printf( "zoom %d\n", zoom );
-    int tileX = (mapPullStartX + offset.x)/ mapPullManyStrideX;
+    int tileX = (mapPullStartX + offset.x)/ mapPullTileWidth;
     printf( "tileX %d = %d / %d\n",
             tileX,
             mapPullStartX,
-            mapPullManyStrideX);
-    int tileY = -(mapPullEndY + offset.y) / mapPullManyStrideY;
+            mapPullTileWidth);
+    int tileY = -(mapPullEndY + offset.y) / mapPullTileHeight;
     printf( "tileY %d = %d / %d\n",
             tileY,
             mapPullEndY,
-            mapPullManyStrideY);
+            mapPullTileHeight);
 
     char *filename = 
         autoSprintf( "tiles/%d", zoom );
@@ -2006,23 +2006,30 @@ void outputMapTile( Image* image, GridPos offset ) {
     }
 
 bool nextMapTile() {
-    mapPullStartX += mapPullManyStrideX;
+    mapPullStartX += mapPullTileWidth;
 
     if( mapPullStartX >= mapPullManyEndX ) {
         mapPullStartX = mapPullManyStartX;
-        mapPullStartY += mapPullManyStrideY;
+        mapPullStartY += mapPullTileHeight;
 
         if( mapPullStartY >= mapPullManyEndY ) {
             return false;
             }
         }
-    mapPullEndX = mapPullStartX + mapPullManyStrideX;
-    mapPullEndY = mapPullStartY + mapPullManyStrideY;
+    mapPullEndX = mapPullStartX + mapPullTileWidth;
+    mapPullEndY = mapPullStartY + mapPullTileHeight;
     printf( "updated window %d,%d to %d,%d\n",
             mapPullStartX,
             mapPullStartY,
             mapPullEndX,
             mapPullEndY);
+
+    mapPullCurrentX = mapPullStartX + mapPullStrideX/2;
+    mapPullCurrentY = mapPullStartY + mapPullStrideY/2;
+    mapPullCurrentSaved = false;
+    mapPullCurrentSent = false;
+    mapPullModeFinalImage = false;
+
     return true;
     }
 
@@ -2446,7 +2453,7 @@ void LivingLifePage::fillMapChunk() {
     printf( "fillMapChunk end %d,%d\n", x, y );
     }
 
-void LivingLifePage::initScreenshotMapPull() {
+void LivingLifePage::initMapPull() {
     mapPullMode = 
         SettingsManager::getIntSetting( "mapPullMode", 0 );
     mapPullStartX = 
@@ -2485,17 +2492,17 @@ void LivingLifePage::beginScreenshotMapPull() {
 
     int manyScale = manyWidth / imageWidth;
 
-    mapPullManyStrideX = (mapPullManyEndX - mapPullManyStartX) / manyScale;
-    mapPullManyStrideY = (mapPullManyEndY - mapPullManyStartY) / manyScale;
-    mapPullEndX = mapPullManyStartX + mapPullManyStrideX;
-    mapPullEndY = mapPullManyStartY + mapPullManyStrideY;
+    mapPullTileWidth = (mapPullManyEndX - mapPullManyStartX) / manyScale;
+    mapPullTileHeight = (mapPullManyEndY - mapPullManyStartY) / manyScale;
+    mapPullEndX = mapPullManyStartX + mapPullTileWidth;
+    mapPullEndY = mapPullManyStartY + mapPullTileHeight;
     printf( "many %d,%d to %d,%d + %d,%d\n",
             mapPullManyStartX,
             mapPullManyStartY,
             mapPullManyEndX,
             mapPullManyEndY,
-            mapPullManyStrideX,
-            mapPullManyStrideY);
+            mapPullTileWidth,
+            mapPullTileHeight);
     printf( "first window %d,%d to %d,%d\n",
             mapPullStartX,
             mapPullStartY,
@@ -2884,42 +2891,72 @@ LivingLifePage::LivingLifePage()
 
     initMap();
 
-    mapPullManyStartX = SettingsManager::getIntSetting( "mapPullStartX", -10 );
-    mapPullManyStartY = SettingsManager::getIntSetting( "mapPullStartY", -10 );
-    mapPullManyEndX = SettingsManager::getIntSetting( "mapPullEndX", 10 );
-    mapPullManyEndY = SettingsManager::getIntSetting( "mapPullEndY", 10 );
-
-    mapPullStartX = mapPullManyStartX;
-    mapPullStartY = mapPullManyStartY;
-    mapPullEndX = mapPullManyEndX;
-    mapPullEndY = mapPullManyEndY;
-
+    initMapPull();
 
     if( mapPull && mapPullZoom <= 18 ) {
         int stride = pow( 2, 18 - mapPullZoom);
-
-        int manyWidth = lrint(( mapPullEndX - mapPullStartX ) / stride );
-        printf( "%d - %d / %d = %d\n",
-                mapPullEndX,
-                mapPullStartX,
-                stride,
-                manyWidth );
         int imageWidth = 256;
         int imageHeight = 256;
 
-        int manyScale = manyWidth / imageWidth;
+        mapPullTileWidth = imageWidth * stride;
+        mapPullTileHeight = imageHeight * stride;
 
-        mapPullManyStrideX = (mapPullManyEndX - mapPullManyStartX) / manyScale;
-        mapPullManyStrideY = (mapPullManyEndY - mapPullManyStartY) / manyScale;
-        mapPullEndX = mapPullManyStartX + mapPullManyStrideX;
-        mapPullEndY = mapPullManyStartY + mapPullManyStrideY;
+        printf( "input %d,%d to %d,%d\n",
+            mapPullManyStartX,
+            mapPullManyStartY,
+            mapPullManyEndX,
+            mapPullManyEndY );
+
+        int modX;
+        int modY;
+
+        modX = mapPullManyStartX % mapPullTileWidth;
+        printf( "start %d %% %d %d\n", mapPullManyStartX, mapPullTileWidth, modX);
+        if( modX < 0 ) {
+            mapPullManyStartX -= mapPullTileWidth + modX;
+        } else if( modX > 0 ) {
+            mapPullManyStartX -= modX;
+        }
+        printf( "start %d\n", mapPullManyStartX);
+        modX = mapPullManyEndX % mapPullTileWidth;
+        printf( "end %d %% %d %d\n", mapPullManyEndX, mapPullTileWidth, modX);
+        if( modX < 0 ) {
+            mapPullManyEndX -= modX;
+        } else if( modX > 0 ) {
+            mapPullManyEndX += mapPullTileWidth - modX;
+        }
+        printf( "end %d\n", mapPullManyEndX);
+
+        modY = mapPullManyStartY % mapPullTileHeight;
+        if( modY < 0 ) {
+            mapPullManyStartY -= mapPullTileHeight + modY;
+        } else if( modY > 0 ) {
+            mapPullManyStartY -= modY;
+        }
+        modY = mapPullManyEndY % mapPullTileHeight;
+        if( modY < 0 ) {
+            mapPullManyEndY -= modY;
+        } else if( modY > 0 ) {
+            mapPullManyEndY += mapPullTileHeight - modY;
+        }
+
+        printf( "adjusted %d,%d to %d,%d\n",
+            mapPullManyStartX,
+            mapPullManyStartY,
+            mapPullManyEndX,
+            mapPullManyEndY );
+
+        mapPullStartX = mapPullManyStartX;
+        mapPullStartY = mapPullManyStartY;
+        mapPullEndX = mapPullManyStartX + mapPullTileWidth;
+        mapPullEndY = mapPullManyStartY + mapPullTileHeight;
         printf( "many %d,%d to %d,%d + %d,%d\n",
                 mapPullManyStartX,
                 mapPullManyStartY,
                 mapPullManyEndX,
                 mapPullManyEndY,
-                mapPullManyStrideX,
-                mapPullManyStrideY);
+                mapPullTileWidth,
+                mapPullTileHeight);
         printf( "first window %d,%d to %d,%d\n",
                 mapPullStartX,
                 mapPullStartY,
@@ -2938,7 +2975,7 @@ LivingLifePage::LivingLifePage()
         }
 
     if( mapPull && mapPullZoom > 18 ) {
-        initScreenshotMapPull();
+        initMapPull();
         beginScreenshotMapPull();
         mFirstServerMessagesReceived = 3;
         do {
@@ -6981,13 +7018,6 @@ void LivingLifePage::draw( doublePair inViewCenter,
                 outputMapTile( mapPullTotalImage, mMapGlobalOffset );
 
                 mapPullMode = nextMapTile();
-
-                mapPullCurrentX = mapPullStartX + mapPullStrideX/2;
-                mapPullCurrentY = mapPullStartY + mapPullStrideY/2;
-                mapPullCurrentSaved = false;
-                mapPullCurrentSent = false;
-                mapPullModeFinalImage = false;
-
 
                 if( !mapPullMode ) {
                     delete mapPullTotalImage;
@@ -17915,7 +17945,7 @@ void LivingLifePage::step() {
                 setViewCenterPosition( lastScreenViewCenter.x, 
                                        lastScreenViewCenter.y );
 
-                initScreenshotMapPull();
+                initMapPull();
 
                 if( mapPullMode ) {
                     
