@@ -56,8 +56,8 @@ static ObjectPickable objectPickable;
 
 
 
-#define MAP_D 64
-#define MAP_NUM_CELLS 4096
+#define MAP_D 256
+#define MAP_NUM_CELLS (MAP_D*MAP_D)
 
 extern int versionNumber;
 extern int dataVersionNumber;
@@ -1971,7 +1971,9 @@ void outputMapTile( Image* image, GridPos offset ) {
 
     File dirFile( NULL, filename );
 
+    printf( "checking %s\n", filename );
     if( ! dirFile.exists() ) {
+        printf( "dir missing, creating %s\n", filename );
         char made = Directory::makeDirectory( &dirFile );
         if( !made ) {
             printf( "Failed to make directory %s\n",
@@ -1987,7 +1989,9 @@ void outputMapTile( Image* image, GridPos offset ) {
 
     dirFile = File( NULL, filename );
 
+    printf( "checking %s\n", filename );
     if( ! dirFile.exists() ) {
+        printf( "dir missing, creating %s\n", filename );
         char made = Directory::makeDirectory( &dirFile );
         if( !made ) {
             printf( "Failed to make directory %s\n",
@@ -2131,8 +2135,8 @@ void LivingLifePage::clearMap() {
 
 
 void LivingLifePage::fillMapChunk() {
-    int sizeX = 32;
-    int sizeY = 30;
+    int sizeX = 256;
+    int sizeY = 256;
     int worldStartX = sendX( mapPullCurrentX ) - sizeX/2;
     int worldStartY = sendY( mapPullCurrentY ) - sizeY/2;
     int x = worldStartX;
@@ -5212,12 +5216,12 @@ void LivingLifePage::draw( doublePair inViewCenter,
         lrintf( lastScreenViewCenter.y / CELL_D ) - mMapOffsetY + mMapD/2;
     
     // more on left and right of screen to avoid wide object tops popping in
-    int xStart = gridCenterX - 6;
-    int xEnd = gridCenterX + 6;
+    int xStart = gridCenterX - (mapPullTileWidth + 2);
+    int xEnd = gridCenterX + (mapPullTileWidth + 2);
 
     // more on bottom of screen so that tall objects don't pop in
-    int yStart = gridCenterY - 8;
-    int yEnd = gridCenterY + 5;
+    int yStart = gridCenterY - (mapPullTileHeight + 3);
+    int yEnd = gridCenterY + (mapPullTileHeight + 1);
 
     if( xStart < 0 ) {
         xStart = 0;
@@ -5259,11 +5263,11 @@ void LivingLifePage::draw( doublePair inViewCenter,
     // tiles drawn on top).  However, given that we're not drawing anything
     // else out there, this should be okay from a performance standpoint.
 
-    int yStartFloor = gridCenterY - 5;
-    int yEndFloor = gridCenterY + 5;
+    int yStartFloor = gridCenterY - (mapPullTileWidth + 1);
+    int yEndFloor = gridCenterY + (mapPullTileWidth + 1);
 
-    int xStartFloor = gridCenterX - 5;
-    int xEndFloor = gridCenterX + 5;
+    int xStartFloor = gridCenterX - (mapPullTileHeight + 1);
+    int xEndFloor = gridCenterX + (mapPullTileHeight + 1);
 
     
 
@@ -5692,13 +5696,13 @@ void LivingLifePage::draw( doublePair inViewCenter,
     toggleAdditiveTextureColoring( true );
     setDrawColor( multAmount, multAmount, multAmount, 1 );
     
-    for( int y=-1; y<=1; y++ ) {
+    for( int y=-4; y<=4; y++ ) {
 
         doublePair pos = groundCenterPos;
 
         pos.y = groundCenterPos.y + y * groundH;
 
-        for( int x=-1; x<=1; x++ ) {
+        for( int x=-4; x<=4; x++ ) {
 
             pos.x = groundCenterPos.x + x * groundW;
             
@@ -5735,7 +5739,7 @@ void LivingLifePage::draw( doublePair inViewCenter,
     //toggleAdditiveTextureColoring( true );
     setDrawColor( 1, 1, 1, addAmount );
     
-    for( int y=-1; y<=1; y++ ) {
+    for( int y=-4; y<=4; y++ ) {
 
         doublePair pos = groundCenterPos;
         
@@ -5744,7 +5748,7 @@ void LivingLifePage::draw( doublePair inViewCenter,
 
         pos.y = groundCenterPos.y + y * groundH;
 
-        for( int x=-1; x<=1; x++ ) {
+        for( int x=-4; x<=4; x++ ) {
 
             pos.x = groundCenterPos.x + x * groundW;
 
@@ -6917,11 +6921,15 @@ void LivingLifePage::draw( doublePair inViewCenter,
             }
         }    
     
+    printf( "draw\n" );
     if( mapPullMode ) {
+        printf( "pull\n" );
         
         //float progress;
         
         if( ! mapPullCurrentSaved ) { //&& 
+            printf( "not saved\n" );
+        
             //isLiveObjectSetFullyLoaded( &progress ) ) {
             
             int screenWidth, screenHeight;
@@ -6931,6 +6939,7 @@ void LivingLifePage::draw( doublePair inViewCenter,
             
             Image *screen = 
                 getScreenRegionRaw( 0, 0, screenWidth, screenHeight );
+            printf( "screen %p\n", screen );
 
             printf( "center %fx%f\n", lastScreenViewCenter.x, lastScreenViewCenter.y );
             int startX = lastScreenViewCenter.x - CELL_D/2 - screenW / 2;
@@ -6961,6 +6970,8 @@ void LivingLifePage::draw( doublePair inViewCenter,
             //totalImStartY =  totalH - totalImStartY;
             printf( "imstart %dx%d\n", totalImStartX, totalImStartY );
 
+            printf( "image %p\n", mapPullTotalImage );
+
             if( totalImStartX >= 0 && totalImStartX < totalW &&
                 totalImStartY >= 0 && totalImStartY < totalH ) {
                 
@@ -6977,6 +6988,7 @@ void LivingLifePage::draw( doublePair inViewCenter,
             mapPullCurrentSaved = true;
             
             if( mapPullModeFinalImage ) {
+                printf( "final\n" );
 
                 //writeTGAFile( "mapOut.tga", mapPullTotalImage );
                 outputMapTile( mapPullTotalImage, mMapGlobalOffset );

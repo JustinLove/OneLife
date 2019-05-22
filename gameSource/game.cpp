@@ -234,6 +234,15 @@ char doesOverrideGameImageSize() {
 
 
 void getGameImageSize( int *outWidth, int *outHeight ) {
+    int zoom = SettingsManager::getIntSetting( "mapPullZoom", 29 );
+    float scale = pow( 2, 24 - zoom) * 128;
+    visibleViewWidth = viewWidth = 256 * scale;
+    viewHeight = 256 * scale;
+    printf( "%d %f %fx%f\n",
+        zoom,
+        scale,
+        viewWidth,
+        viewHeight);
     *outWidth = (int)viewWidth;
     *outHeight = (int)viewHeight;
     }
