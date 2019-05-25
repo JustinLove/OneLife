@@ -1966,10 +1966,21 @@ void outputMapTile( Image* image, GridPos offset ) {
             mapPullEndY,
             mapPullTileHeight);
 
+    File dirFile( NULL, "tiles" );
+
+    printf( "checking tiles\n" );
+    if( ! dirFile.exists() ) {
+        printf( "dir missing, creating tiles\n" );
+        char made = Directory::makeDirectory( &dirFile );
+        if( !made ) {
+            printf( "Failed to make directory tiles\n" );
+            }
+        }
+
     char *filename = 
         autoSprintf( "tiles/%d", mapPullZoom);
 
-    File dirFile( NULL, filename );
+    dirFile = File( NULL, filename );
 
     printf( "checking %s\n", filename );
     if( ! dirFile.exists() ) {
@@ -2135,8 +2146,8 @@ void LivingLifePage::clearMap() {
 
 
 void LivingLifePage::fillMapChunk() {
-    int sizeX = 256;
-    int sizeY = 256;
+    int sizeX = mapPullTileWidth + 4;
+    int sizeY = mapPullTileHeight + 6;
     int worldStartX = sendX( mapPullCurrentX ) - sizeX/2;
     int worldStartY = sendY( mapPullCurrentY ) - sizeY/2;
     int x = worldStartX;
@@ -2435,7 +2446,7 @@ void LivingLifePage::fillMapChunk() {
         
     mFirstServerMessagesReceived |= 1;
 
-    lastScreenViewCenter.x = mapPullCurrentX * CELL_D + CELL_D/2;
+    lastScreenViewCenter.x = mapPullCurrentX * CELL_D - CELL_D/2;
     lastScreenViewCenter.y = mapPullCurrentY * CELL_D - CELL_D/2;
     setViewCenterPosition( lastScreenViewCenter.x,
                            lastScreenViewCenter.y );
@@ -6942,7 +6953,7 @@ void LivingLifePage::draw( doublePair inViewCenter,
             printf( "screen %p\n", screen );
 
             printf( "center %fx%f\n", lastScreenViewCenter.x, lastScreenViewCenter.y );
-            int startX = lastScreenViewCenter.x - CELL_D/2 - screenW / 2;
+            int startX = lastScreenViewCenter.x + CELL_D/2 - screenW / 2;
             int startY = lastScreenViewCenter.y + CELL_D/2 + screenH / 2;
             printf( "start offset %dx%d\n", startX, startY);
             startY = -startY;
@@ -12518,7 +12529,7 @@ void LivingLifePage::step() {
                 if( x == mapPullCurrentX - sizeX/2 && 
                     y == mapPullCurrentY - sizeY/2 ) {
                     
-                    lastScreenViewCenter.x = mapPullCurrentX * CELL_D + CELL_D/2;
+                    lastScreenViewCenter.x = mapPullCurrentX * CELL_D - CELL_D/2;
                     lastScreenViewCenter.y = mapPullCurrentY * CELL_D - CELL_D/2;
                     setViewCenterPosition( lastScreenViewCenter.x,
                                            lastScreenViewCenter.y );

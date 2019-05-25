@@ -1310,7 +1310,7 @@ void outputMapBiomeImage( int startX, int startY, int stride, Image& biomeIm ) {
         for( int x = 0; x<w; x++ ) {
 
             
-            int biomeInd = getMapBiomeIndex( startX + x*stride, (startY + (h - y)*stride) );
+            int biomeInd = getMapBiomeIndex( startX + x*stride, (startY + ((h - 1) - y)*stride) );
             biomeIm.setColor( y * w + x,
                               biomeColors.getElementDirect( biomeInd ) );
             }
