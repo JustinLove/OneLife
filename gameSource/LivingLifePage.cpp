@@ -1952,12 +1952,8 @@ char mapPullModeFinalImage = false;
 Image *mapPullTotalImage = NULL;
 int numScreensWritten = 0;
 
-typedef struct intPair {
-        int x;
-        int y;
-    } intPair;
-
-SimpleVector<intPair> tileList;
+SimpleVector<GridPos> tileList;
+int currentTile = 0;
 
 
 void loadTileList( const char* inFileName ) {
@@ -1974,7 +1970,7 @@ void loadTileList( const char* inFileName ) {
 
     for( int i=0; i<numLines; i++ ){
         if( strcmp( lines[i], "" ) == 0 ) break;
-        intPair tile;
+        GridPos tile;
         sscanf( lines[i], "%d %d",
                 &( tile.x ),
                 &( tile.y ) );
@@ -2052,15 +2048,31 @@ void outputMapTile( Image* image, GridPos offset ) {
     delete [] filename;
     }
 
-bool nextMapTile() {
-    mapPullStartX += mapPullTileWidth;
-
-    if( mapPullStartX >= mapPullManyEndX ) {
-        mapPullStartX = mapPullManyStartX;
-        mapPullStartY += mapPullTileHeight;
-
-        if( mapPullStartY >= mapPullManyEndY ) {
+bool nextMapTile(GridPos offset) {
+    if( tileList.size() > 0 ) {
+        currentTile++;
+        if( currentTile >= tileList.size() ) {
             return false;
+            }
+        GridPos* tile = tileList.getElement(currentTile);
+        mapPullStartX = tile->x * mapPullTileWidth;
+        mapPullStartY = (-tile->y - 1) * mapPullTileHeight;
+        if( mapPullZoom > 24 ) {
+            mapPullStartX -= offset.x;
+            mapPullStartY -= offset.y;
+            }
+        printf( "target tile %d,%d\n", tile->x, tile->y );
+        }
+    else {
+        mapPullStartX += mapPullTileWidth;
+
+        if( mapPullStartX >= mapPullManyEndX ) {
+            mapPullStartX = mapPullManyStartX;
+            mapPullStartY += mapPullTileHeight;
+
+            if( mapPullStartY >= mapPullManyEndY ) {
+                return false;
+                }
             }
         }
     mapPullEndX = mapPullStartX + mapPullTileWidth;
@@ -2584,10 +2596,6 @@ void LivingLifePage::initMapPull() {
         mapPullManyEndX,
         mapPullManyEndY );
 
-    mapPullStartX = mapPullManyStartX;
-    mapPullStartY = mapPullManyStartY;
-    mapPullEndX = mapPullManyStartX + mapPullTileWidth;
-    mapPullEndY = mapPullManyStartY + mapPullTileHeight;
     printf( "many %d,%d to %d,%d + %d,%d\n",
             mapPullManyStartX,
             mapPullManyStartY,
@@ -2595,6 +2603,20 @@ void LivingLifePage::initMapPull() {
             mapPullManyEndY,
             mapPullTileWidth,
             mapPullTileHeight);
+
+    if( tileList.size() > 0 ) {
+        GridPos* tile = tileList.getElement(0);
+        mapPullStartX = tile->x * mapPullTileWidth;
+        mapPullStartY = (-tile->y - 1) * mapPullTileHeight;
+        printf( "target tile %d,%d\n", tile->x, tile->y );
+        }
+    else {
+        mapPullStartX = mapPullManyStartX;
+        mapPullStartY = mapPullManyStartY;
+        }
+
+    mapPullEndX = mapPullStartX + mapPullTileWidth;
+    mapPullEndY = mapPullStartY + mapPullTileHeight;
     printf( "first window %d,%d to %d,%d\n",
             mapPullStartX,
             mapPullStartY,
@@ -2997,7 +3019,7 @@ LivingLifePage::LivingLifePage()
         do {
             outputMapBiomeImage( mapPullStartX, mapPullStartY, stride, *mapPullTotalImage );
             outputMapTile( mapPullTotalImage, {0,0} );
-            } while( nextMapTile() );
+            } while( nextMapTile({0,0}) );
         quitGame();
         }
 
@@ -7051,7 +7073,7 @@ void LivingLifePage::draw( doublePair inViewCenter,
                 //writeTGAFile( "mapOut.tga", mapPullTotalImage );
                 outputMapTile( mapPullTotalImage, mMapGlobalOffset );
 
-                mapPullMode = nextMapTile();
+                mapPullMode = nextMapTile(mMapGlobalOffset);
 
                 if( !mapPullMode ) {
                     delete mapPullTotalImage;
