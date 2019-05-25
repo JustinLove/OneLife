@@ -1290,7 +1290,7 @@ void outputMapBiomeImage( int startX, int startY, int stride, Image& biomeIm ) {
     biomeColors.push_back( *c );
     // 3
     // desert
-    c = Color::makeColorFromHSV( 37.0/360.0, 0.71, 0.62 );
+    c = Color::makeColorFromHSV( 37.0/360.0, 0.65, 0.62 );
     biomeColors.push_back( *c );
     // 4
     // plains
@@ -1298,11 +1298,11 @@ void outputMapBiomeImage( int startX, int startY, int stride, Image& biomeIm ) {
     biomeColors.push_back( *c );
     // 5
     // swamp
-    c = Color::makeColorFromHSV( 228.0/360.0, 0.47, 0.51 );
+    c = Color::makeColorFromHSV( 253.0/360.0, 0.17, 0.65 );
     biomeColors.push_back( *c );
     // 6
     // jungle
-    c = Color::makeColorFromHSV( 92.0/360.0, 0.87, 0.36 );
+    c = Color::makeColorFromHSV( 90.0/360.0, 0.87, 0.48 );
     biomeColors.push_back( *c );
 
     for( int y = 0; y<h; y++ ) {
