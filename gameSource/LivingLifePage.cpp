@@ -1952,6 +1952,39 @@ char mapPullModeFinalImage = false;
 Image *mapPullTotalImage = NULL;
 int numScreensWritten = 0;
 
+typedef struct intPair {
+        int x;
+        int y;
+    } intPair;
+
+SimpleVector<intPair> tileList;
+
+
+void loadTileList( const char* inFileName ) {
+    File tileFile( NULL, inFileName );
+
+    char* contents = tileFile.readFileContents();
+    if( contents == NULL ) {
+        AppLog::errorF( "Failed to open tile file %s for reading", inFileName );
+        return;
+        }
+    int numLines;
+    char **lines = split( contents, "\n", &numLines );
+    delete [] contents;
+
+    for( int i=0; i<numLines; i++ ){
+        if( strcmp( lines[i], "" ) == 0 ) break;
+        intPair tile;
+        sscanf( lines[i], "%d %d",
+                &( tile.x ),
+                &( tile.y ) );
+        //printf( "parse %s as %d,%d\n", lines[i], tile.x, tile.y );
+        tileList.push_back( tile );
+        }
+
+    delete [] lines;
+    }
+
 
 void outputMapTile( Image* image, GridPos offset ) {
     printf( "zoom %d\n", mapPullZoom );
@@ -2468,7 +2501,21 @@ void LivingLifePage::fillMapChunk() {
     }
 
 void LivingLifePage::initMapPull() {
-    printf("init map pull");
+    char* tileListName = SettingsManager::getStringSetting( "mapPullTileList", NULL );
+
+    if( tileListName ) {
+        char* filename = autoSprintf( "tiles/%s_%d_tiles.txt", tileListName, mapPullZoom );
+
+        printf( "file list %s\n", tileListName );
+        loadTileList( filename );
+
+        delete [] filename;
+        delete [] tileListName;
+        }
+    else {
+        printf( "failed to load list name\n" );
+        }
+
     mapPullMode = 
         SettingsManager::getIntSetting( "mapPullMode", 0 );
     mapPullStartX = 
