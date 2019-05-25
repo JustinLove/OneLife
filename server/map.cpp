@@ -1281,24 +1281,24 @@ void outputMapBiomeImage( int startX, int startY, int stride, Image& biomeIm ) {
     c = Color::makeColorFromHSV( 89.0/360.0, 0.49, 0.67 );
     biomeColors.push_back( *c );
     // 1
-    // mountain
-    c = Color::makeColorFromHSV( 40.0/360.0, 0.16, 0.36 );
+    // swamp
+    c = Color::makeColorFromHSV( 253.0/360.0, 0.17, 0.65 );
     biomeColors.push_back( *c );
     // 2
-    // arctic
-    c = Color::makeColorFromHSV( 0.0/360.0, 0.00, 1.0 );
-    biomeColors.push_back( *c );
-    // 3
-    // desert
-    c = Color::makeColorFromHSV( 37.0/360.0, 0.65, 0.62 );
-    biomeColors.push_back( *c );
-    // 4
     // plains
     c = Color::makeColorFromHSV( 36.0/360.0, 0.75, 0.90 );
     biomeColors.push_back( *c );
+    // 3
+    // mountain
+    c = Color::makeColorFromHSV( 40.0/360.0, 0.16, 0.36 );
+    biomeColors.push_back( *c );
+    // 4
+    // arctic
+    c = Color::makeColorFromHSV( 0.0/360.0, 0.00, 1.0 );
+    biomeColors.push_back( *c );
     // 5
-    // swamp
-    c = Color::makeColorFromHSV( 253.0/360.0, 0.17, 0.65 );
+    // desert
+    c = Color::makeColorFromHSV( 37.0/360.0, 0.65, 0.62 );
     biomeColors.push_back( *c );
     // 6
     // jungle
@@ -1310,7 +1310,7 @@ void outputMapBiomeImage( int startX, int startY, int stride, Image& biomeIm ) {
         for( int x = 0; x<w; x++ ) {
 
             
-            int biomeInd = getMapBiomeIndex( startX + x*stride, (startY + ((h - 1) - y)*stride) );
+            int biomeInd = getMapBiome( startX + x*stride, (startY + ((h - 1) - y)*stride) );
             biomeIm.setColor( y * w + x,
                               biomeColors.getElementDirect( biomeInd ) );
             }
