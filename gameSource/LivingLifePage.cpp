@@ -2048,40 +2048,66 @@ void outputMapTile( Image* image, GridPos offset ) {
     delete [] filename;
     }
 
+
+bool currentTileExists( GridPos offset ) {
+    printf( "zoom %d\n", mapPullZoom );
+    int tileX = (mapPullStartX + offset.x)/ mapPullTileWidth;
+    printf( "tileX %d = %d / %d\n",
+            tileX,
+            mapPullStartX,
+            mapPullTileWidth);
+    int tileY = -(mapPullEndY + offset.y) / mapPullTileHeight;
+    printf( "tileY %d = %d / %d\n",
+            tileY,
+            mapPullEndY,
+            mapPullTileHeight);
+
+    char *filename = 
+        autoSprintf( "tiles/%d/%d/%d.png", mapPullZoom, tileX, tileY );
+    File dirFile( NULL, filename );
+
+    printf( "checking %s\n", filename );
+    bool exists =  dirFile.exists();
+    delete [] filename;
+    return exists;
+    }
+
 bool nextMapTile(GridPos offset) {
-    if( tileList.size() > 0 ) {
-        currentTile++;
-        if( currentTile >= tileList.size() ) {
-            return false;
-            }
-        GridPos* tile = tileList.getElement(currentTile);
-        mapPullStartX = tile->x * mapPullTileWidth;
-        mapPullStartY = (-tile->y - 1) * mapPullTileHeight;
-        if( mapPullZoom > 24 ) {
-            mapPullStartX -= offset.x;
-            mapPullStartY -= offset.y;
-            }
-        printf( "target tile %d,%d\n", tile->x, tile->y );
-        }
-    else {
-        mapPullStartX += mapPullTileWidth;
-
-        if( mapPullStartX >= mapPullManyEndX ) {
-            mapPullStartX = mapPullManyStartX;
-            mapPullStartY += mapPullTileHeight;
-
-            if( mapPullStartY >= mapPullManyEndY ) {
+    do {
+        if( tileList.size() > 0 ) {
+            currentTile++;
+            if( currentTile >= tileList.size() ) {
                 return false;
                 }
+            GridPos* tile = tileList.getElement(currentTile);
+            mapPullStartX = tile->x * mapPullTileWidth;
+            mapPullStartY = (-tile->y - 1) * mapPullTileHeight;
+            if( mapPullZoom > 24 ) {
+                mapPullStartX -= offset.x;
+                mapPullStartY -= offset.y;
+                }
+            printf( "target tile %d,%d\n", tile->x, tile->y );
             }
-        }
-    mapPullEndX = mapPullStartX + mapPullTileWidth;
-    mapPullEndY = mapPullStartY + mapPullTileHeight;
-    printf( "updated window %d,%d to %d,%d\n",
-            mapPullStartX,
-            mapPullStartY,
-            mapPullEndX,
-            mapPullEndY);
+        else {
+            mapPullStartX += mapPullTileWidth;
+
+            if( mapPullStartX >= mapPullManyEndX ) {
+                mapPullStartX = mapPullManyStartX;
+                mapPullStartY += mapPullTileHeight;
+
+                if( mapPullStartY >= mapPullManyEndY ) {
+                    return false;
+                    }
+                }
+            }
+        mapPullEndX = mapPullStartX + mapPullTileWidth;
+        mapPullEndY = mapPullStartY + mapPullTileHeight;
+        printf( "updated window %d,%d to %d,%d\n",
+                mapPullStartX,
+                mapPullStartY,
+                mapPullEndX,
+                mapPullEndY);
+        } while( currentTileExists(offset) );
 
     mapPullCurrentX = mapPullStartX + mapPullStrideX/2;
     mapPullCurrentY = mapPullStartY + mapPullStrideY/2;
@@ -2477,9 +2503,9 @@ void LivingLifePage::fillMapChunk() {
                 int worldX = cX + worldStartX;
                 int worldY = cY + worldStartY;
 
-                mMap[mapI] = hideIDForClient( getMapObject( worldX, worldY ) );
+                mMap[mapI] = hideIDForClient( getMapObjectRaw( worldX, worldY ) );
                 mMapBiomes[mapI] = getMapBiome( worldX, worldY );
-                mMapFloors[mapI] = hideIDForClient( getMapFloor( worldX, worldY ) );
+                mMapFloors[mapI] = hideIDForClient( getMapFloorRaw( worldX, worldY ) );
 
                 if( mMap[mapI] != oldMapID ) {
                     // our placement status cleared

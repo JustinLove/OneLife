@@ -6514,6 +6514,12 @@ int getMapFloor( int inX, int inY ) {
 
 
 
+int getMapFloorRaw( int inX, int inY ) {
+    return dbFloorGet( inX, inY );
+    }
+
+
+
 void setMapFloor( int inX, int inY, int inID ) {
     dbFloorPut( inX, inY, inID );
 

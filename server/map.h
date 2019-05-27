@@ -166,6 +166,8 @@ void shrinkContainer( int inX, int inY, int inNumNewSlots, int inSubCont = 0 );
 // finishes burning while player still has it on the screen).
 int getMapFloor( int inX, int inY );
 
+int getMapFloorRaw( int inX, int inY );
+
 void setMapFloor( int inX, int inY, int inID );
 
 void setFloorEtaDecay( int inX, int inY, timeSec_t inAbsoluteTimeInSeconds );
