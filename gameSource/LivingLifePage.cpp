@@ -1938,6 +1938,8 @@ int mapPullManyEndX = 10;
 int mapPullManyStartY = -10;
 int mapPullManyEndY = 10;
 int mapPullZoom = 29;
+const char* mapPullOutputDirectory = "tiles";
+const char* mapPullTileListDirectory = "tiles";
 
 int mapPullCurrentX;
 int mapPullCurrentY;
@@ -1995,19 +1997,19 @@ void outputMapTile( Image* image, GridPos offset ) {
             mapPullEndY,
             mapPullTileHeight);
 
-    File dirFile( NULL, "tiles" );
+    File dirFile( NULL, mapPullOutputDirectory );
 
-    printf( "checking tiles\n" );
+    printf( "checking %s\n", mapPullOutputDirectory );
     if( ! dirFile.exists() ) {
-        printf( "dir missing, creating tiles\n" );
+        printf( "dir missing, creating %s\n", mapPullOutputDirectory );
         char made = Directory::makeDirectory( &dirFile );
         if( !made ) {
-            printf( "Failed to make directory tiles\n" );
+            printf( "Failed to make directory %s\n", mapPullOutputDirectory );
             }
         }
 
     char *filename = 
-        autoSprintf( "tiles/%d", mapPullZoom);
+        autoSprintf( "%s/%d", mapPullOutputDirectory, mapPullZoom);
 
     dirFile = File( NULL, filename );
 
@@ -2025,7 +2027,7 @@ void outputMapTile( Image* image, GridPos offset ) {
 
 
     filename = 
-        autoSprintf( "tiles/%d/%d", mapPullZoom, tileX );
+        autoSprintf( "%s/%d/%d", mapPullOutputDirectory, mapPullZoom, tileX );
 
     dirFile = File( NULL, filename );
 
@@ -2042,7 +2044,7 @@ void outputMapTile( Image* image, GridPos offset ) {
     delete [] filename;
 
     filename = 
-        autoSprintf( "tiles/%d/%d/%d.png", mapPullZoom, tileX, tileY );
+        autoSprintf( "%s/%d/%d/%d.png", mapPullOutputDirectory, mapPullZoom, tileX, tileY );
     writePNGFile( filename, mapPullTotalImage );
     printf( "wrote %s\n", filename );
     delete [] filename;
@@ -2063,7 +2065,7 @@ bool currentTileExists( GridPos offset ) {
             mapPullTileHeight);
 
     char *filename = 
-        autoSprintf( "tiles/%d/%d/%d.png", mapPullZoom, tileX, tileY );
+        autoSprintf( "%s/%d/%d/%d.png", mapPullOutputDirectory, mapPullZoom, tileX, tileY );
     File dirFile( NULL, filename );
 
     printf( "checking %s\n", filename );
@@ -2539,12 +2541,19 @@ void LivingLifePage::fillMapChunk() {
     }
 
 void LivingLifePage::initMapPull() {
-    char* tileListName = SettingsManager::getStringSetting( "mapPullTileList", NULL );
+    mapPullOutputDirectory =
+        SettingsManager::getStringSetting( "mapPullOutputDirectory", "tiles" );
+    mapPullTileListDirectory =
+        SettingsManager::getStringSetting( "mapPullTileListDirectory", "tiles" );
+
+    char* tileListName =
+        SettingsManager::getStringSetting( "mapPullTileList", NULL );
 
     if( tileListName ) {
-        char* filename = autoSprintf( "tiles/%s_%d_tiles.txt", tileListName, mapPullZoom );
+        char* filename = autoSprintf( "%s/%s_%d_tiles.txt",
+            mapPullTileListDirectory, tileListName, mapPullZoom );
 
-        printf( "file list %s\n", tileListName );
+        printf( "file list %s\n", filename );
         loadTileList( filename );
 
         delete [] filename;
@@ -3039,6 +3048,13 @@ LivingLifePage::LivingLifePage()
     initMap();
 
     initMapPull();
+
+    if( currentTileExists({0,0}) ) {
+        if( !nextMapTile({0,0}) ) {
+            mapPull = false;
+            quitGame();
+            }
+        }
 
     if( mapPull && mapPullZoom <= 24 ) {
         int stride = pow( 2, 24 - mapPullZoom);
